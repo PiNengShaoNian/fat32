@@ -30,12 +30,12 @@ static xfat_err_t xdisk_hw_read_sector(struct _xdisk_t* disk, u8_t* buffer, u32_
 	u32_t offset = start_sector * disk->sector_size;
 	FILE* file = (FILE*)disk->data;
 
-	int err = fseek(file, offset, SEEK_SET);
+	xfat_err_t err = fseek(file, offset, SEEK_SET);
 	if (err == -1) {
 		printf("seek disk failed: 0x%x\n", offset);
 		return FS_ERR_IO;
 	}
-	err = fread(buffer, disk->sector_size, count, file);
+	err = (xfat_err_t)fread(buffer, disk->sector_size, count, file);
 	if (err == -1) {
 		printf("read disk failed: sector: %d, count: %d\n", start_sector, count);
 		return FS_ERR_IO;
@@ -47,12 +47,12 @@ static xfat_err_t xdisk_hw_write_sector(struct _xdisk_t* disk, u8_t* buffer, u32
 	u32_t offset = start_sector * disk->sector_size;
 	FILE* file = (FILE*)disk->data;
 
-	int err = fseek(file, offset, SEEK_SET);
+	xfat_err_t err = fseek(file, offset, SEEK_SET);
 	if (err == -1) {
 		printf("seek disk failed: 0x%x\n", offset);
 		return FS_ERR_IO;
 	}
-	err = fwrite(buffer, disk->sector_size, count, file);
+	err = (xfat_err_t)fwrite(buffer, disk->sector_size, count, file);
 	if (err == -1) {
 		printf("write disk failed: sector: %d, count: %d\n", start_sector, count);
 		return FS_ERR_IO;
