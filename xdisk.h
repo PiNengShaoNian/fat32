@@ -16,6 +16,7 @@ typedef struct _xdisk_t {
 	u32_t sector_size;
 	u32_t total_sector;
 	xdisk_driver_t* driver;
+	void* data;
 } xdisk_t;
 
 #endif

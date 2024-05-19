@@ -102,7 +102,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
     </ClCompile>
     <Link>
@@ -128,6 +128,17 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="fatfs_test.c" />
+    <ClCompile Include="xdisk.c" />
+    <ClCompile Include="xfat.c" />
+    <ClCompile Include="driver.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="xdisk.h" />
+    <ClInclude Include="xfat.h" />
+    <ClInclude Include="xtypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\QuGuiYou\Downloads\disk_test.img" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

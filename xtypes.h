@@ -10,6 +10,7 @@ typedef uint64_t u64_t;
 
 typedef enum _xfat_err_t {
 	FS_ERR_OK = 0,
+	FS_ERR_IO = -1,
 } xfat_err_t;
 
 #endif
