@@ -50,15 +50,26 @@ int disk_io_test(void) {
 	return 0;
 }
 
+#pragma pack(1)
+typedef struct _mbr_t {
+	u32_t a;
+	u16_t b;
+	u32_t c;
+} mbr_t;
+#pragma pack()
+
 int main(void) {
 	for (int i = 0; i < sizeof(write_buffer) / sizeof(u32_t); i++) {
 		write_buffer[i] = i;
 	}
 
-	int err = disk_io_test();
+	/*int err = disk_io_test();
 	if (err) {
 		return err;
-	}
+	}*/
+
+	mbr_t* mbr = (mbr_t*)0x100;
+	printf("%p\n", &(mbr->c));
 
 	printf("test end!\n");
 	return 0;
