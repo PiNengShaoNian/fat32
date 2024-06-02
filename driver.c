@@ -8,7 +8,9 @@ static xfat_err_t xdisk_hw_open(struct _xdisk_t* disk, void* init_data) {
 	const char* path = (const char *)init_data;
 	FILE* file = fopen(path, "rb+");
 	if (file == NULL) {
-		printf("open disk failed: %s, reason: %s\n", path, strerror(errno));
+		char buffer[128];
+		strerror_s(buffer, 128, errno);
+		printf("open disk failed: %s, reason: %s\n", path, buffer);
 		return FS_ERR_IO;
 	}
 
