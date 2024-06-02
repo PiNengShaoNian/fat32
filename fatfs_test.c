@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "xdisk.h"
+#include "xfat.h"
 
 extern xdisk_driver_t vdisk_driver;
 
@@ -52,10 +53,11 @@ int disk_io_test(void) {
 }
 
 xdisk_t disk;
+xdisk_part_t disk_part;
 int disk_part_test(void) {
 	u32_t count;
 	int err;
-	printf("partition read test...");
+	printf("partition read test...\n");
 	err = xdisk_get_part_count(&disk, &count);
 	if (err < 0) {
 		printf("partition count detect failed\n");
@@ -98,6 +100,18 @@ int main(void) {
 	if (err) {
 		return err;
 	}
+
+	err = xdisk_get_part(&disk, &disk_part, 1);
+	if (err < 0) {
+		printf("read partion failed!\n");
+		return -1;
+	}
+
+	err = xdisk_read_sector(&disk, (u8_t*)read_buffer, disk_part.start_sector, 1);
+	if (err < 0) {
+		return err;
+	}
+	dbr_t* dbr = (dbr_t*)read_buffer;
 
 	err = xdisk_close(&disk);
 	if (err) {
