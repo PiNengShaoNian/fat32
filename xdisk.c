@@ -95,3 +95,83 @@ xfat_err_t xdisk_get_part_count(xdisk_t* disk, u32_t* count) {
 	*count = r_count;
 	return FS_ERR_OK;
 }
+
+static xfat_err_t disk_get_extend_part(xdisk_t* disk, xdisk_part_t* xdisk_part, u32_t start_sector,
+	int part_no, u32_t* count) {
+	u8_t* disk_buffer = temp_buffer;
+	xfat_err_t err = FS_ERR_OK;
+	int curr_no = -1;
+	u32_t ext_start_sector = start_sector;
+	do {
+		mbr_part_t* part;
+		err = xdisk_read_sector(disk, disk_buffer, start_sector, 1);
+		if (err < 0) {
+			return err;
+		}
+		part = ((mbr_t*)disk_buffer)->part_info;
+		if (part->system_id == FS_NOT_VALID) {
+			err = FS_ERR_EOF;
+			break;
+		}
+		if (++curr_no == part_no) {
+			xdisk_part->type = part->system_id;
+			xdisk_part->start_sector = part->relative_sectors + start_sector;
+			xdisk_part->total_sector = part->total_sectors;
+			xdisk_part->disk = disk;
+			break;
+		}
+		if ((++part)->system_id != FS_EXTEND) {
+			err = FS_ERR_EOF;
+			break;
+		}
+
+		start_sector = ext_start_sector + part->relative_sectors;
+	} while (1);
+
+	*count = curr_no + 1;
+	return err;
+}
+
+xfat_err_t xdisk_get_part(xdisk_t* disk, xdisk_part_t* xdisk_part, int part_no) {
+	u8_t* disk_buffer = temp_buffer;
+	int err = xdisk_read_sector(disk, disk_buffer, 0, 1);
+	if (err < 0) {
+		return err;
+	}
+
+	mbr_part_t* mbr_part = ((mbr_t*)disk_buffer)->part_info;
+	int curr_no = -1;
+	for (int i = 0; i < MBR_PRIMARY_PART_NR; i++, mbr_part++) {
+		if (mbr_part->system_id == FS_NOT_VALID) {
+			continue;
+		}
+		if (mbr_part->system_id == FS_EXTEND) {
+			u32_t count = 0;
+			err = disk_get_extend_part(disk, xdisk_part, mbr_part->relative_sectors, part_no - i, &count);
+			if (err < 0) {
+				return err;
+			}
+			if (err == FS_ERR_OK) {
+				return FS_ERR_OK;
+			}
+			else {
+				curr_no += count;
+				err = xdisk_read_sector(disk, disk_buffer, 0, 1);
+				if (err < 0) {
+					return err;
+				}
+			}
+		}
+		else {
+			if (++curr_no == part_no) {
+				xdisk_part->type = mbr_part->system_id;
+				xdisk_part->start_sector = mbr_part->relative_sectors;
+				xdisk_part->total_sector = mbr_part->total_sectors;
+				xdisk_part->disk = disk;
+				return FS_ERR_OK;
+			}
+		}
+	}
+
+	return FS_ERR_NONE;
+}
