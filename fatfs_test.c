@@ -54,6 +54,7 @@ int disk_io_test(void) {
 
 xdisk_t disk;
 xdisk_part_t disk_part;
+xfat_t xfat;
 int disk_part_test(void) {
 	u32_t count;
 	int err;
@@ -107,11 +108,7 @@ int main(void) {
 		return -1;
 	}
 
-	err = xdisk_read_sector(&disk, (u8_t*)read_buffer, disk_part.start_sector, 1);
-	if (err < 0) {
-		return err;
-	}
-	dbr_t* dbr = (dbr_t*)read_buffer;
+	err = xfat_open(&xfat, &disk_part);
 
 	err = xdisk_close(&disk);
 	if (err) {

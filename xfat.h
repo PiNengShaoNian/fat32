@@ -2,6 +2,7 @@
 #define XFAT_H
 
 #include "xtypes.h"
+#include "xdisk.h"
 
 #pragma pack(1)
 
@@ -50,5 +51,16 @@ typedef struct _dbr_t {
 } dbr_t;
 
 #pragma pack()
+
+typedef struct _xfat_t {
+	u32_t fat_start_sector; // Fat分配表的起始扇区
+	u32_t fat_tbl_nr; // Fat分配表的数量
+	u32_t fat_tbl_sectors; // 每个文件分配表（FAT）占用的扇区数。
+	u32_t total_sectors; // 总扇区数
+
+	xdisk_part_t* disk_part;
+} xfat_t;
+
+xfat_err_t xfat_open(xfat_t* xfat, xdisk_part_t* part);
 
 #endif
