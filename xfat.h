@@ -50,17 +50,66 @@ typedef struct _dbr_t {
 	fat32_hdr_t fat32;
 } dbr_t;
 
+#define DIRITEM_NAME_FREE               0xE5                // 目录项空闲名标记
+#define DIRITEM_NAME_END                0x00                // 目录项结束名标记
+
+#define DIRITEM_ATTR_READ_ONLY          0x01                // 目录项属性：只读
+#define DIRITEM_ATTR_HIDDEN             0x02                // 目录项属性：隐藏
+#define DIRITEM_ATTR_SYSTEM             0x04                // 目录项属性：系统类型
+#define DIRITEM_ATTR_VOLUME_ID          0x08                // 目录项属性：卷id
+#define DIRITEM_ATTR_DIRECTORY          0x10                // 目录项属性：目录
+#define DIRITEM_ATTR_ARCHIVE            0x20                // 目录项属性：归档
+#define DIRITEM_ATTR_LONG_NAME          0x0F                // 目录项属性：长文件名
+
+/**
+ * FAT目录项的日期类型
+ */
+typedef struct _diritem_date_t {
+	u16_t day : 5;                  // 日
+	u16_t month : 4;                // 月
+	u16_t year_from_1980 : 7;       // 年
+} diritem_date_t;
+
+/**
+ * FAT目录项的时间类型
+ */
+typedef struct _diritem_time_t {
+	u16_t second_2 : 5;             // 最多精确到2秒，取值为0-29
+	u16_t minute : 6;               // 分
+	u16_t hour : 5;                 // 时
+} diritem_time_t;
+
+typedef struct _diritem_t {
+	u8_t DIR_Name[8];                   // 文件名
+	u8_t DIR_ExtName[3];                // 扩展名
+	u8_t DIR_Attr;                      // 属性
+	u8_t DIR_NTRes;
+	u8_t DIR_CrtTimeTeenth;             // 创建时间的毫秒
+	diritem_time_t DIR_CrtTime;         // 创建时间
+	diritem_date_t DIR_CrtDate;         // 创建日期
+	diritem_date_t DIR_LastAccDate;     // 最后访问日期
+	u16_t DIR_FstClusHI;                // 簇号高16位
+	diritem_time_t DIR_WrtTime;         // 修改时间
+	diritem_date_t DIR_WrtDate;         // 修改时期
+	u16_t DIR_FstClusL0;                // 簇号低16位
+	u32_t DIR_FileSize;                 // 文件字节大小
+} diritem_t;
+
 #pragma pack()
 
 typedef struct _xfat_t {
 	u32_t fat_start_sector; // Fat分配表的起始扇区
 	u32_t fat_tbl_nr; // Fat分配表的数量
 	u32_t fat_tbl_sectors; // 每个文件分配表（FAT）占用的扇区数。
+	u32_t sec_per_cluster; // 每个簇有几个扇区
+	u32_t root_cluster; // 根目录簇
+	u32_t cluster_byte_size; // 一个簇占几个字节
 	u32_t total_sectors; // 总扇区数
 
 	xdisk_part_t* disk_part;
 } xfat_t;
 
 xfat_err_t xfat_open(xfat_t* xfat, xdisk_part_t* part);
+xfat_err_t read_cluster(xfat_t* xfat, u8_t* buffer, u32_t cluster, u32_t count);
 
 #endif
