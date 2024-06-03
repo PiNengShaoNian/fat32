@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include "xfat.h"
 
 extern u8_t temp_buffer[512];
@@ -46,6 +47,14 @@ xfat_err_t xfat_open(xfat_t* xfat, xdisk_part_t* xdisk_part) {
 		return err;
 	}
 
+	xfat->fat_buffer = (u8_t*)malloc(xfat->fat_tbl_sectors * xdisk->sector_size);
+	if (xfat->fat_buffer == NULL) {
+		return FS_ERR_MEM;
+	}
+	err = xdisk_read_sector(xdisk, (u8_t*)xfat->fat_buffer, xfat->fat_start_sector, xfat->fat_tbl_sectors);
+	if (err < 0) {
+		return err;
+	}
 	return FS_ERR_OK;
 }
 
@@ -65,6 +74,23 @@ xfat_err_t read_cluster(xfat_t* xfat, u8_t* buffer, u32_t cluster, u32_t count) 
 
 		curr_buffer += xfat->cluster_byte_size;
 		curr_sector += xfat->sec_per_cluster;
+	}
+
+	return FS_ERR_OK;
+}
+
+int is_cluster_valid(u32_t cluster) {
+	cluster &= 0x0FFFFFFF;
+	return (cluster < 0x0FFFFFF0) && (cluster >= 2);
+}
+
+xfat_err_t get_next_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t* next_cluster) {
+	if (is_cluster_valid(curr_cluster)) {
+		cluster32_t* cluster32_buf = (cluster32_t*)xfat->fat_buffer;
+		*next_cluster = cluster32_buf[curr_cluster].s.next;
+	}
+	else {
+		*next_cluster = CLUSTER_INVALID;
 	}
 
 	return FS_ERR_OK;

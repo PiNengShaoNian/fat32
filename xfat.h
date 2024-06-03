@@ -50,6 +50,9 @@ typedef struct _dbr_t {
 	fat32_hdr_t fat32;
 } dbr_t;
 
+#define CLUSTER_INVALID                 0x0FFFFFFF          // 无效的簇号
+
+
 #define DIRITEM_NAME_FREE               0xE5                // 目录项空闲名标记
 #define DIRITEM_NAME_END                0x00                // 目录项结束名标记
 
@@ -95,6 +98,14 @@ typedef struct _diritem_t {
 	u32_t DIR_FileSize;                 // 文件字节大小
 } diritem_t;
 
+typedef union _cluster32_t {
+	struct {
+		u32_t next : 28;
+		u32_t reserved : 4;
+	} s;
+	u32_t v;
+} cluster32_t;
+
 #pragma pack()
 
 typedef struct _xfat_t {
@@ -106,9 +117,12 @@ typedef struct _xfat_t {
 	u32_t cluster_byte_size; // 一个簇占几个字节
 	u32_t total_sectors; // 总扇区数
 
+	u8_t* fat_buffer;
 	xdisk_part_t* disk_part;
 } xfat_t;
 
+int is_cluster_valid(u32_t cluster);
+xfat_err_t get_next_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t* next_cluster);
 xfat_err_t xfat_open(xfat_t* xfat, xdisk_part_t* part);
 xfat_err_t read_cluster(xfat_t* xfat, u8_t* buffer, u32_t cluster, u32_t count);
 

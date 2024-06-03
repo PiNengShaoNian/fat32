@@ -124,7 +124,7 @@ void show_dir_info(diritem_t* diritem) {
 		diritem->DIR_LastAccDate.month, diritem->DIR_LastAccDate.day);
 
 	printf("\n\t size %f KB, ", diritem->DIR_FileSize / 1024.0);
-	printf("\n\t cluster %d, ", (diritem->DIR_FstClusHI << 16) | diritem->DIR_FstClusL0);
+	printf("\n\t cluster %d\n", (diritem->DIR_FstClusHI << 16) | diritem->DIR_FstClusL0);
 }
 
 int fat_dir_test(void) {
@@ -134,27 +134,35 @@ int fat_dir_test(void) {
 		return -1;
 	}
 	u32_t curr_cluster = xfat.root_cluster;
-	xfat_err_t err = read_cluster(&xfat, cluster_buffer, curr_cluster, 1);
-
-	if (err < 0) {
-		printf("read cluster %d, failed!\n", curr_cluster);
-		return -1;
-	}
-
-	diritem_t* diritem = (diritem_t*)cluster_buffer;
 	int index = 0;
-	for (int i = 0; i < xfat.cluster_byte_size / sizeof(diritem_t); i++) {
-		u8_t* name = (u8_t*)(diritem[i].DIR_Name);
-		if (name[0] == DIRITEM_NAME_FREE) {
-			continue;
-		}
-		else if (name[0] == DIRITEM_NAME_END) {
-			break;
+	while (is_cluster_valid(curr_cluster)) {
+		xfat_err_t err = read_cluster(&xfat, cluster_buffer, curr_cluster, 1);
+
+		if (err < 0) {
+			printf("read cluster %d, failed!\n", curr_cluster);
+			return -1;
 		}
 
-		++index;
-		printf("no: %d ", index);
-		show_dir_info(&diritem[i]);
+		diritem_t* diritem = (diritem_t*)cluster_buffer;
+		for (int i = 0; i < xfat.cluster_byte_size / sizeof(diritem_t); i++) {
+			u8_t* name = (u8_t*)(diritem[i].DIR_Name);
+			if (name[0] == DIRITEM_NAME_FREE) {
+				continue;
+			}
+			else if (name[0] == DIRITEM_NAME_END) {
+				break;
+			}
+
+			++index;
+			printf("no: %d ", index);
+			show_dir_info(&diritem[i]);
+		}
+
+		err = get_next_cluster(&xfat, curr_cluster, &curr_cluster);
+		if (err) {
+			printf("get next cluster failed! current cluster: %d\n", curr_cluster);
+			return -1;
+		}
 	}
 
 	return FS_ERR_OK;
