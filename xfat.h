@@ -52,7 +52,6 @@ typedef struct _dbr_t {
 
 #define CLUSTER_INVALID                 0x0FFFFFFF          // 无效的簇号
 
-
 #define DIRITEM_NAME_FREE               0xE5                // 目录项空闲名标记
 #define DIRITEM_NAME_END                0x00                // 目录项结束名标记
 

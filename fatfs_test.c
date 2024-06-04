@@ -140,6 +140,7 @@ int fat_dir_test(void) {
 
 		if (err < 0) {
 			printf("read cluster %d, failed!\n", curr_cluster);
+			free(cluster_buffer);
 			return -1;
 		}
 
@@ -161,10 +162,46 @@ int fat_dir_test(void) {
 		err = get_next_cluster(&xfat, curr_cluster, &curr_cluster);
 		if (err) {
 			printf("get next cluster failed! current cluster: %d\n", curr_cluster);
+			free(cluster_buffer);
 			return -1;
 		}
 	}
 
+	free(cluster_buffer);
+	return FS_ERR_OK;
+}
+
+int fat_file_test(void) {
+	u8_t* cluster_buffer = (u8_t*)malloc(xfat.cluster_byte_size);
+	if (cluster_buffer == NULL) {
+		printf("alloc cluster buffer failed!\n");
+		return -1;
+	}
+	u32_t curr_cluster = 4565;
+	int index = 0;
+	int size = 0;
+	while (is_cluster_valid(curr_cluster)) {
+		xfat_err_t err = read_cluster(&xfat, cluster_buffer, curr_cluster, 1);
+
+		if (err < 0) {
+			printf("read cluster %d, failed!\n", curr_cluster);
+			free(cluster_buffer);
+			return -1;
+		}
+
+		cluster_buffer[xfat.cluster_byte_size - 1] = '\0';
+		printf("%s", (char*)cluster_buffer);
+		size += xfat.cluster_byte_size;
+		err = get_next_cluster(&xfat, curr_cluster, &curr_cluster);
+		if (err) {
+			printf("get next cluster failed! current cluster: %d\n", curr_cluster);
+			free(cluster_buffer);
+			return -1;
+		}
+	}
+
+	printf("\n file size: %d\n", size);
+	free(cluster_buffer);
 	return FS_ERR_OK;
 }
 
@@ -202,6 +239,14 @@ int main(void) {
 	}
 
 	err = fat_dir_test();
+	if (err) {
+		return err;
+	}
+
+	err = fat_file_test();
+	if (err) {
+		return err;
+	}
 
 	err = xdisk_close(&disk);
 	if (err) {
