@@ -214,8 +214,25 @@ int fs_open_test(void) {
 		printf("open file failed %s!\n", "/");
 		return -1;
 	}
-
 	xfile_close(&file);
+
+	const char* exist_path = "/12345678ABC";
+	err = xfile_open(&xfat, &file, exist_path);
+	if (err) {
+		printf("open file failed %s!\n", exist_path);
+		return -1;
+	}
+	xfile_close(&file);
+
+	const char* not_exist_file = "/file_not_exist.txt";
+	err = xfile_open(&xfat, &file, not_exist_file);
+	if (err) {
+		printf("open file failed %s!\n", not_exist_file);
+		return -1;
+	}
+	xfile_close(&file);
+
+
 	printf("file open test ok!\n");
 	return 0;
 }

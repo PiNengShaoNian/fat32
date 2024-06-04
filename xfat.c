@@ -1,9 +1,12 @@
 #include <stdlib.h>
+#include <string.h>
+#include <assert.h>
 #include "xfat.h"
 
 extern u8_t temp_buffer[512];
 
 #define xfat_get_disk(xfat) ((xfat)->disk_part->disk)
+#define is_path_sep(ch) (((ch) == '/') || ((ch) == '\\'))
 
 static xfat_err_t parse_fat_header(xfat_t* xfat, dbr_t* dbr) {
 	xdisk_part_t* xdisk_part = xfat->disk_part;
@@ -58,8 +61,10 @@ xfat_err_t xfat_open(xfat_t* xfat, xdisk_part_t* xdisk_part) {
 	return FS_ERR_OK;
 }
 
+// 获取fat文件系统中，第cluster_no个簇的第一个扇区编号
 u32_t cluster_first_sector(xfat_t* xfat, u32_t cluster_no) {
 	u32_t data_start_sector = xfat->fat_start_sector + xfat->fat_tbl_sectors * xfat->fat_tbl_nr;
+	// 需要减去起始的两个保留簇，才是真实的簇号
 	return data_start_sector + (cluster_no - 2) * xfat->sec_per_cluster;
 }
 
@@ -96,15 +101,148 @@ xfat_err_t get_next_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t* next_cluste
 	return FS_ERR_OK;
 }
 
+static int is_filename_match(const char* name_in_dir, const char* to_find_name) {
+	return memcmp(to_find_name, name_in_dir, SFN_LEN) == 0;
+}
+
+static const char* skip_first_path_sep(const char* path) {
+	const char* c = path;
+	while (is_path_sep(*c)) {
+		c++;
+	}
+	return c;
+}
+
+static const char* get_child_path(const char* dir_path) {
+	const char* c = skip_first_path_sep(dir_path);
+
+	// /a/b/c/d.txt -> b/c/d.txt
+	while ((*c != '\0') && !is_path_sep(*c)) {
+		c++;
+	}
+
+	return (*c == '\0') ? (const char*)0 : c + 1;
+}
+
+static xfile_type_t get_file_type(const diritem_t* diritem) {
+	if (diritem->DIR_Attr & DIRITEM_ATTR_VOLUME_ID) {
+		return FAT_VOL;
+	}
+	else if (diritem->DIR_Attr & DIRITEM_ATTR_DIRECTORY) {
+		return FAT_DIR;
+	}
+	else {
+		return FAT_FILE;
+	}
+}
+
+static u32_t get_diritem_cluster(diritem_t* item) {
+	return (item->DIR_FstClusHI << 16) | item->DIR_FstClusL0;
+}
+
+#define to_sector(disk, offset) ((offset) / (disk)->sector_size)
+#define to_sector_offset(disk, offset) ((offset) % (disk)->sector_size)
+
+static xfat_err_t locate_file_dir_item(xfat_t* xfat, u32_t* dir_cluster, u32_t* cluster_offset, const char* path, u32_t* r_moved_bytes, diritem_t** r_diritem) {
+	u32_t curr_cluster = *dir_cluster;
+	xdisk_t* xdisk = xfat_get_disk(xfat);
+	u32_t initial_sector = to_sector(xdisk, *cluster_offset);
+	u32_t initial_offset = to_sector_offset(xdisk, *cluster_offset);
+	u32_t move_bytes = 0;
+
+	do {
+		u32_t start_sector = cluster_first_sector(xfat, curr_cluster);
+		for (u32_t i = initial_sector; i < xfat->sec_per_cluster; i++) {
+			xfat_err_t err = xdisk_read_sector(xdisk, temp_buffer, start_sector + i, 1);
+			if (err < 0) {
+				return err;
+			}
+
+			for (int j = initial_offset / sizeof(diritem_t); j < xdisk->sector_size / sizeof(diritem_t); j++) {
+				diritem_t* dir_item = ((diritem_t*)temp_buffer) + j;
+				if (dir_item->DIR_Name[0] == DIRITEM_NAME_END) {
+					return FS_ERR_EOF;
+				}
+				else if (dir_item->DIR_Name[0] == DIRITEM_NAME_FREE) {
+					move_bytes += sizeof(diritem_t);
+					continue;
+				}
+
+				if (path == (const char*)0 ||
+					(*path == 0) ||
+					is_filename_match((const char*)dir_item->DIR_Name, path)) {
+					u32_t total_offset = i * xdisk->sector_size + j * sizeof(diritem_t);
+					*dir_cluster = curr_cluster;
+					*cluster_offset = total_offset;
+					*r_moved_bytes = move_bytes + sizeof(diritem_t);
+					if (r_diritem) {
+						*r_diritem = dir_item;
+					}
+					return FS_ERR_OK;
+				}
+
+				move_bytes += sizeof(diritem_t);
+			}
+		}
+		xfat_err_t err = get_next_cluster(xfat, curr_cluster, &curr_cluster);
+		if (err < 0) {
+			return 0;
+		}
+		initial_sector = 0;
+		initial_offset = 0;
+	} while (is_cluster_valid(curr_cluster));
+
+	return FS_ERR_EOF;
+}
+
 static xfat_err_t open_sub_file(xfat_t* xfat, u32_t dir_cluster, xfile_t* file, const char* path) {
-	file->size = 0;
-	file->type = FAT_DIR;
-	file->start_cluster = dir_cluster;
-	file->curr_cluster = dir_cluster;
+	path = skip_first_path_sep(path);
+	u32_t parent_cluster = dir_cluster;
+	u32_t parent_cluster_offset = 0;
+	u32_t file_start_cluster = 0;
+	if ((path != '\0') && (*path != '\0')) {
+		// a/b/c/d.txt
+		const char* curr_path = path;
+		diritem_t* diritem = (diritem_t*)0;
+		while (curr_path != (const char*)0) {
+			u32_t moved_bytes = 0;
+			diritem = (diritem_t*)0;
+			xfat_err_t err = locate_file_dir_item(xfat, &parent_cluster, &parent_cluster_offset,
+				curr_path, &moved_bytes, &diritem);
+			if (err < 0) {
+				return err;
+			}
+			if (diritem == (diritem_t*)0) {
+				return FS_ERR_NONE;
+			}
+
+			curr_path = get_child_path(curr_path);
+			if (curr_path != (const char*)0) {
+				parent_cluster = get_diritem_cluster(diritem);
+				parent_cluster_offset = 0;
+			}
+			else {
+				file_start_cluster = get_diritem_cluster(diritem);
+			}
+		}
+
+		file->size = diritem->DIR_FileSize;
+		file->type = get_file_type(diritem);
+		file->start_cluster = file_start_cluster;
+		file->curr_cluster = file_start_cluster;
+	}
+	else {
+		file->size = 0;
+		file->type = FAT_DIR;
+		file->start_cluster = dir_cluster;
+		file->curr_cluster = dir_cluster;
+	}
 
 	file->xfat = xfat;
 	file->pos = 0;
 	file->err = FS_ERR_OK;
+	file->attr = 0;
+
 	return FS_ERR_OK;
 }
 
