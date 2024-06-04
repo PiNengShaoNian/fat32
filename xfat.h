@@ -120,9 +120,29 @@ typedef struct _xfat_t {
 	xdisk_part_t* disk_part;
 } xfat_t;
 
+typedef enum _xfile_type_t {
+	FAT_DIR,
+	FAT_FILE,
+	FAT_VOL,
+} xfile_type_t;
+
+typedef struct _xfile_t {
+	xfat_t* xfat;
+	u32_t size;
+	u16_t attr;
+	xfile_type_t type;
+	u32_t pos;
+	xfat_err_t err;
+	u32_t start_cluster;
+	u32_t curr_cluster;
+} xfile_t;
+
 int is_cluster_valid(u32_t cluster);
 xfat_err_t get_next_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t* next_cluster);
 xfat_err_t xfat_open(xfat_t* xfat, xdisk_part_t* part);
 xfat_err_t read_cluster(xfat_t* xfat, u8_t* buffer, u32_t cluster, u32_t count);
+
+xfat_err_t xfile_open(xfat_t* xfat, xfile_t* file, const char* path);
+xfat_err_t xfile_close(xfile_t* file);
 
 #endif

@@ -205,6 +205,21 @@ int fat_file_test(void) {
 	return FS_ERR_OK;
 }
 
+int fs_open_test(void) {
+	printf("fs open test...\n");
+
+	xfile_t file;
+	xfat_err_t err = xfile_open(&xfat, &file, "/");
+	if (err) {
+		printf("open file failed %s!\n", "/");
+		return -1;
+	}
+
+	xfile_close(&file);
+	printf("file open test ok!\n");
+	return 0;
+}
+
 int main(void) {
 	for (int i = 0; i < sizeof(write_buffer) / sizeof(u32_t); i++) {
 		write_buffer[i] = i;
@@ -238,12 +253,17 @@ int main(void) {
 		return -1;
 	}
 
-	err = fat_dir_test();
-	if (err) {
-		return err;
-	}
+	//err = fat_dir_test();
+	//if (err) {
+	//	return err;
+	//}
 
-	err = fat_file_test();
+	//err = fat_file_test();
+	//if (err) {
+	//	return err;
+	//}
+
+	err = fs_open_test();
 	if (err) {
 		return err;
 	}

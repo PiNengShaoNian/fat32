@@ -95,3 +95,23 @@ xfat_err_t get_next_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t* next_cluste
 
 	return FS_ERR_OK;
 }
+
+static xfat_err_t open_sub_file(xfat_t* xfat, u32_t dir_cluster, xfile_t* file, const char* path) {
+	file->size = 0;
+	file->type = FAT_DIR;
+	file->start_cluster = dir_cluster;
+	file->curr_cluster = dir_cluster;
+
+	file->xfat = xfat;
+	file->pos = 0;
+	file->err = FS_ERR_OK;
+	return FS_ERR_OK;
+}
+
+xfat_err_t xfile_open(xfat_t* xfat, xfile_t* file, const char* path) {
+	return open_sub_file(xfat, xfat->root_cluster, file, path);
+}
+
+xfat_err_t xfile_close(xfile_t* file) {
+	return FS_ERR_OK;
+}
