@@ -1,6 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
+#include <ctype.h>
 #include "xfat.h"
 
 extern u8_t temp_buffer[512];
@@ -101,8 +101,64 @@ xfat_err_t get_next_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t* next_cluste
 	return FS_ERR_OK;
 }
 
+static xfat_err_t to_sfn(char* dest_name, const char* my_name) {
+	int i, name_len;
+	char* dest = dest_name;
+	const char* ext_dot;
+	const char* p;
+	int ext_existed;
+
+	memset(dest, ' ', SFN_LEN);
+
+	// 跳过开头的分隔符
+	while (is_path_sep(*my_name)) {
+		my_name++;
+	}
+
+	// 找到第一个斜杠之前的字符串，将ext_dot定位到那里，且记录有效长度
+	ext_dot = my_name;
+	p = my_name;
+	name_len = 0;
+	while ((*p != '\0') && !is_path_sep(*p)) {
+		if (*p == '.') {
+			ext_dot = p;
+		}
+		p++;
+		name_len++;
+	}
+
+	// 如果文件名以.结尾，意思就是没有扩展名？
+	// todo: 长文件名处理?
+	ext_existed = (ext_dot > my_name) && (ext_dot < (my_name + name_len - 1));
+
+	// 遍历名称，逐个复制字符, 算上.分隔符，最长12字节，如果分离符，则只应有
+	p = my_name;
+	for (i = 0; (i < SFN_LEN) && (*p != '\0') && !is_path_sep(*p); i++) {
+		if (ext_existed) {
+			if (p == ext_dot) {
+				dest = dest_name + 8;
+				p++;
+				i--;
+				continue;
+			}
+			else if (p < ext_dot) {
+				*dest++ = toupper(*p++);
+			}
+			else {
+				*dest++ = toupper(*p++);
+			}
+		}
+		else {
+			*dest++ = toupper(*p++);
+		}
+	}
+	return FS_ERR_OK;
+}
+
 static int is_filename_match(const char* name_in_dir, const char* to_find_name) {
-	return memcmp(to_find_name, name_in_dir, SFN_LEN) == 0;
+	char temp_name[SFN_LEN];
+	to_sfn(temp_name, to_find_name);
+	return memcmp(temp_name, name_in_dir, SFN_LEN) == 0;
 }
 
 static const char* skip_first_path_sep(const char* path) {

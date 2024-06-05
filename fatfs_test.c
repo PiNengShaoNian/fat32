@@ -224,6 +224,23 @@ int fs_open_test(void) {
 	}
 	xfile_close(&file);
 
+	const char* file1 = "/open/file.txt";
+	const char* file2 = "/open/a0/a1/a2/a3/a4/a5/a6/a7/a8/a9/a10/a11/a12/a13/a14/a15/a16/a17/a18/a19/file.txt";
+
+	err = xfile_open(&xfat, &file, file1);
+	if (err) {
+		printf("open file failed %s!\n", file1);
+		return -1;
+	}
+	xfile_close(&file);
+
+	err = xfile_open(&xfat, &file, file2);
+	if (err) {
+		printf("open file failed %s!\n", file2);
+		return -1;
+	}
+	xfile_close(&file);
+
 	const char* not_exist_file = "/file_not_exist.txt";
 	err = xfile_open(&xfat, &file, not_exist_file);
 	if (err) {
