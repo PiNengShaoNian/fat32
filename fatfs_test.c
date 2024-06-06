@@ -254,6 +254,81 @@ int fs_open_test(void) {
 	return 0;
 }
 
+void show_file_info(xfileinfo_t* fileinfo) {
+	printf("\n\n name: %s, ", fileinfo->file_name);
+	switch (fileinfo->type) {
+	case FAT_FILE:
+		printf("file, ");
+		break;
+	case FAT_DIR:
+		printf("dir, ");
+		break;
+	case FAT_VOL:
+		printf("vol, ");
+		break;
+	default:
+		printf("unknown, ");
+	}
+
+	printf("\n\tcreate: %d-%d-%d %d:%d:%d",
+		fileinfo->create_time.year,
+		fileinfo->create_time.month,
+		fileinfo->create_time.day,
+		fileinfo->create_time.hour,
+		fileinfo->create_time.minute,
+		fileinfo->create_time.second);
+	printf("\n\tlast write: %d-%d-%d %d:%d:%d",
+		fileinfo->modify_time.year,
+		fileinfo->modify_time.month,
+		fileinfo->modify_time.day,
+		fileinfo->modify_time.hour,
+		fileinfo->modify_time.minute,
+		fileinfo->modify_time.second);
+	printf("\n\tlast access: %d-%d-%d",
+		fileinfo->last_acctime.year,
+		fileinfo->last_acctime.month,
+		fileinfo->last_acctime.day);
+	printf("\n\tsize %d kB, ", fileinfo->size / 1024);
+	printf("\n");
+}
+
+int dir_traverse_test(void) {
+	printf("\ntrans dir test!\n");
+
+	xfile_t top_dir;
+	xfileinfo_t fileinfo;
+	xfat_err_t err = xfile_open(&xfat, &top_dir, "/");
+	if (err < 0) {
+		printf("Open directory failed!\n");
+		return -1;
+	}
+
+	err = xdir_first_file(&top_dir, &fileinfo);
+	if (err < 0) {
+		printf("get file info failed!\n");
+		return -1;
+	}
+
+	show_file_info(&fileinfo);
+
+	while ((err = xdir_next_file(&top_dir, &fileinfo) == 0)) {
+		show_file_info(&fileinfo);
+	}
+
+	if (err < 0) {
+		printf("get file info failed!\n");
+	}
+
+	err = xfile_close(&top_dir);
+	if (err < 0) {
+		printf("close file failed!\n");
+		return -1;
+	}
+
+	printf("file trans test ok!\n");
+	return 0;
+}
+
 int main(void) {
 	for (int i = 0; i < sizeof(write_buffer) / sizeof(u32_t); i++) {
 		write_buffer[i] = i;
@@ -297,7 +372,12 @@ int main(void) {
 	//	return err;
 	//}
 
-	err = fs_open_test();
+	//err = fs_open_test();
+	//if (err) {
+	//	return err;
+	//}
+
+	err = dir_traverse_test();
 	if (err) {
 		return err;
 	}

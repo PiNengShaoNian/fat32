@@ -7,6 +7,9 @@ extern u8_t temp_buffer[512];
 
 #define xfat_get_disk(xfat) ((xfat)->disk_part->disk)
 #define is_path_sep(ch) (((ch) == '/') || ((ch) == '\\'))
+#define to_sector(disk, offset) ((offset) / (disk)->sector_size)
+#define to_sector_offset(disk, offset) ((offset) % (disk)->sector_size)
+#define to_cluster_offset(xfat, pos) ((pos) % (xfat)->cluster_byte_size)
 
 static xfat_err_t parse_fat_header(xfat_t* xfat, dbr_t* dbr) {
 	xdisk_part_t* xdisk_part = xfat->disk_part;
@@ -196,8 +199,67 @@ static u32_t get_diritem_cluster(diritem_t* item) {
 	return (item->DIR_FstClusHI << 16) | item->DIR_FstClusL0;
 }
 
-#define to_sector(disk, offset) ((offset) / (disk)->sector_size)
-#define to_sector_offset(disk, offset) ((offset) % (disk)->sector_size)
+static void sfn_to_myname(char* dest_name, const diritem_t* diritem) {
+	char* dest = dest_name;
+	char* raw_name = (char*)diritem->DIR_Name;
+	u8_t ext_exist = raw_name[8] != 0x20;
+	u8_t scan_len = ext_exist ? SFN_LEN + 1 : SFN_LEN;
+
+	memset(dest_name, 0, X_FILEINFO_NAME_SIZE);
+	for (int i = 0; i < scan_len; i++) {
+		if (*raw_name == ' ') {
+			raw_name++;
+		}
+		else if (i == 8 && ext_exist) {
+			*dest++ = '.';
+		}
+		else {
+			u8_t lower = 0;
+			if (((i < 8) && (diritem->DIR_NTRes & DIRITEM_NTRES_BODY_LOWER)) ||
+				((i > 8) && (diritem->DIR_NTRes & DIRITEM_NTRES_EXT_LOWER))) {
+				lower = 1;
+			}
+			*dest++ = lower ? tolower(*raw_name++) : toupper(*raw_name++);
+		}
+	}
+
+	*dest = '\0';
+}
+
+static void copy_date_time(xfile_time_t* dest, const diritem_date_t* date, const diritem_time_t* time, const u8_t mil_sec) {
+	if (date) {
+		dest->year = date->year_from_1980 + 1980;
+		dest->month = date->month;
+		dest->day = date->day;
+	}
+	else {
+		dest->year = 0;
+		dest->month = 0;
+		dest->day = 0;
+	}
+
+	if (time) {
+		dest->hour = time->hour;
+		dest->minute = time->minute;
+		dest->second = time->second_2 * 2 + mil_sec / 100;
+	}
+	else {
+		dest->hour = 0;
+		dest->minute = 0;
+		dest->second = 0;
+	}
+}
+
+static void copy_file_info(xfileinfo_t* info, const diritem_t* dir_item) {
+	sfn_to_myname(info->file_name, dir_item);
+	info->size = dir_item->DIR_FileSize;
+	info->attr = dir_item->DIR_Attr;
+	info->type = get_file_type(dir_item);
+
+	copy_date_time(&info->create_time, &dir_item->DIR_CrtDate, &dir_item->DIR_CrtTime, dir_item->DIR_CrtTimeTeenth);
+	copy_date_time(&info->last_acctime, &dir_item->DIR_LastAccDate, 0, 0);
+	copy_date_time(&info->modify_time, &dir_item->DIR_WrtDate, &dir_item->DIR_WrtTime, 0);
+}
 
 static xfat_err_t locate_file_dir_item(xfat_t* xfat, u32_t* dir_cluster, u32_t* cluster_offset, const char* path, u32_t* r_moved_bytes, diritem_t** r_diritem) {
 	u32_t curr_cluster = *dir_cluster;
@@ -308,4 +370,53 @@ xfat_err_t xfile_open(xfat_t* xfat, xfile_t* file, const char* path) {
 
 xfat_err_t xfile_close(xfile_t* file) {
 	return FS_ERR_OK;
+}
+
+xfat_err_t xdir_first_file(xfile_t* file, xfileinfo_t* info) {
+	if (file->type != FAT_DIR) {
+		return FS_ERR_PARAM;
+	}
+
+	file->curr_cluster = file->start_cluster;
+	file->pos = 0;
+
+	u32_t cluster_offset = 0;
+	u32_t moved_bytes = 0;
+	diritem_t* diritem = (diritem_t*)0;
+	xfat_err_t err = locate_file_dir_item(file->xfat, &file->curr_cluster, &cluster_offset, "", &moved_bytes, &diritem);
+	if (err < 0) {
+		return err;
+	}
+	file->pos += moved_bytes;
+	if (diritem == (diritem_t*)0) {
+		return FS_ERR_OK;
+	}
+	copy_file_info(info, diritem);
+	return err;
+}
+
+xfat_err_t xdir_next_file(xfile_t* file, xfileinfo_t* info) {
+	if (file->type != FAT_DIR) {
+		return FS_ERR_PARAM;
+	}
+
+	u32_t cluster_offset = to_cluster_offset(file->xfat, file->pos);
+	u32_t moved_bytes = 0;
+	diritem_t* diritem = (diritem_t*)0;
+	xfat_err_t err = locate_file_dir_item(file->xfat, &file->curr_cluster, &cluster_offset, "", &moved_bytes, &diritem);
+	if (err < 0) {
+		return err;
+	}
+	file->pos += moved_bytes;
+	if (cluster_offset + sizeof(diritem_t) >= file->xfat->cluster_byte_size) {
+		err = get_next_cluster(file->xfat, file->curr_cluster, &file->curr_cluster);
+		if (err < 0) {
+			return err;
+		}
+	}
+	if (diritem == (diritem_t*)0) {
+		return FS_ERR_EOF;
+	}
+	copy_file_info(info, diritem);
+	return err;
 }

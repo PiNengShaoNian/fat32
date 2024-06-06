@@ -55,6 +55,9 @@ typedef struct _dbr_t {
 #define DIRITEM_NAME_FREE               0xE5                // 目录项空闲名标记
 #define DIRITEM_NAME_END                0x00                // 目录项结束名标记
 
+#define DIRITEM_NTRES_BODY_LOWER 0x08 // (1 << 3)
+#define DIRITEM_NTRES_EXT_LOWER 0x10 // (1 << 4)
+
 #define DIRITEM_ATTR_READ_ONLY          0x01                // 目录项属性：只读
 #define DIRITEM_ATTR_HIDDEN             0x02                // 目录项属性：隐藏
 #define DIRITEM_ATTR_SYSTEM             0x04                // 目录项属性：系统类型
@@ -139,6 +142,26 @@ typedef struct _xfile_t {
 	u32_t curr_cluster;
 } xfile_t;
 
+typedef struct _xfile_time_t {
+	u16_t year;
+	u8_t month;
+	u8_t day;
+	u8_t hour;
+	u8_t minute;
+	u8_t second;
+} xfile_time_t;
+
+typedef struct _xfileinfo_t {
+#define X_FILEINFO_NAME_SIZE 32
+	char file_name[X_FILEINFO_NAME_SIZE];
+	u32_t size;
+	u16_t attr;
+	xfile_type_t type;
+	xfile_time_t create_time;
+	xfile_time_t last_acctime;
+	xfile_time_t modify_time;
+} xfileinfo_t;
+
 int is_cluster_valid(u32_t cluster);
 xfat_err_t get_next_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t* next_cluster);
 xfat_err_t xfat_open(xfat_t* xfat, xdisk_part_t* part);
@@ -146,5 +169,8 @@ xfat_err_t read_cluster(xfat_t* xfat, u8_t* buffer, u32_t cluster, u32_t count);
 
 xfat_err_t xfile_open(xfat_t* xfat, xfile_t* file, const char* path);
 xfat_err_t xfile_close(xfile_t* file);
+
+xfat_err_t xdir_first_file(xfile_t* file, xfileinfo_t* info);
+xfat_err_t xdir_next_file(xfile_t* file, xfileinfo_t* info);
 
 #endif
