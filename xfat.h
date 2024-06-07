@@ -131,6 +131,13 @@ typedef enum _xfile_type_t {
 
 #define SFN_LEN 11
 
+#define XFILE_LOCATE_NORMAL (1 << 0)
+#define XFILE_LOCATE_DOT (1 << 1) // ., ..
+#define XFILE_LOCATE_VOL (1 << 2)
+#define XFILE_LOCATE_SYSTEM (1 << 3)
+#define XFILE_LOCATE_HIDDEN (1 << 4)
+#define XFILE_LOCATE_ALL 0xFF
+
 typedef struct _xfile_t {
 	xfat_t* xfat;
 	u32_t size;

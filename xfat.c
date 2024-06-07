@@ -5,6 +5,9 @@
 
 extern u8_t temp_buffer[512];
 
+#define DOT_FILE ".          "
+#define DOT_DOT_FILE "..         "
+
 #define xfat_get_disk(xfat) ((xfat)->disk_part->disk)
 #define is_path_sep(ch) (((ch) == '/') || ((ch) == '\\'))
 #define to_sector(disk, offset) ((offset) / (disk)->sector_size)
@@ -261,7 +264,28 @@ static void copy_file_info(xfileinfo_t* info, const diritem_t* dir_item) {
 	copy_date_time(&info->modify_time, &dir_item->DIR_WrtDate, &dir_item->DIR_WrtTime, 0);
 }
 
-static xfat_err_t locate_file_dir_item(xfat_t* xfat, u32_t* dir_cluster, u32_t* cluster_offset, const char* path, u32_t* r_moved_bytes, diritem_t** r_diritem) {
+static u8_t is_locate_type_match(diritem_t* dir_item, u8_t locate_type) {
+	u8_t match = 1;
+
+	if ((dir_item->DIR_Attr & DIRITEM_ATTR_SYSTEM) && !(locate_type & XFILE_LOCATE_SYSTEM)) {
+		match = 0;
+	}
+	else if ((dir_item->DIR_Attr & DIRITEM_ATTR_HIDDEN) && !(locate_type & XFILE_LOCATE_HIDDEN)) {
+		match = 0;
+	}
+	else if ((dir_item->DIR_Attr & DIRITEM_ATTR_VOLUME_ID) && !(locate_type & XFILE_LOCATE_VOL)) {
+		match = 0;
+	}
+	else if ((memcmp(DOT_FILE, dir_item->DIR_Name, SFN_LEN) == 0 ||
+		memcmp(DOT_DOT_FILE, dir_item->DIR_Name, SFN_LEN) == 0) &&
+		!(locate_type & XFILE_LOCATE_DOT)) {
+		match = 0;
+	}
+
+	return match;
+}
+
+static xfat_err_t locate_file_dir_item(xfat_t* xfat, u8_t locate_type, u32_t* dir_cluster, u32_t* cluster_offset, const char* path, u32_t* r_moved_bytes, diritem_t** r_diritem) {
 	u32_t curr_cluster = *dir_cluster;
 	xdisk_t* xdisk = xfat_get_disk(xfat);
 	u32_t initial_sector = to_sector(xdisk, *cluster_offset);
@@ -282,6 +306,10 @@ static xfat_err_t locate_file_dir_item(xfat_t* xfat, u32_t* dir_cluster, u32_t* 
 					return FS_ERR_EOF;
 				}
 				else if (dir_item->DIR_Name[0] == DIRITEM_NAME_FREE) {
+					move_bytes += sizeof(diritem_t);
+					continue;
+				}
+				else if (!is_locate_type_match(dir_item, locate_type)) {
 					move_bytes += sizeof(diritem_t);
 					continue;
 				}
@@ -325,7 +353,7 @@ static xfat_err_t open_sub_file(xfat_t* xfat, u32_t dir_cluster, xfile_t* file, 
 		while (curr_path != (const char*)0) {
 			u32_t moved_bytes = 0;
 			diritem = (diritem_t*)0;
-			xfat_err_t err = locate_file_dir_item(xfat, &parent_cluster, &parent_cluster_offset,
+			xfat_err_t err = locate_file_dir_item(xfat, XFILE_LOCATE_DOT | XFILE_LOCATE_NORMAL, &parent_cluster, &parent_cluster_offset,
 				curr_path, &moved_bytes, &diritem);
 			if (err < 0) {
 				return err;
@@ -341,6 +369,9 @@ static xfat_err_t open_sub_file(xfat_t* xfat, u32_t dir_cluster, xfile_t* file, 
 			}
 			else {
 				file_start_cluster = get_diritem_cluster(diritem);
+				if (memcmp((void*)(diritem->DIR_Name), DOT_DOT_FILE, SFN_LEN) == 0 && (file_start_cluster == 0)) {
+					file_start_cluster = xfat->root_cluster;
+				}
 			}
 		}
 
@@ -365,6 +396,14 @@ static xfat_err_t open_sub_file(xfat_t* xfat, u32_t dir_cluster, xfile_t* file, 
 }
 
 xfat_err_t xfile_open(xfat_t* xfat, xfile_t* file, const char* path) {
+	path = skip_first_path_sep(path);
+	if (memcmp(path, "..", 2) == 0) {
+		// /..
+		return FS_ERR_PARAM;
+	}
+	else if (memcmp(path, ".", 1) == 0) {
+		path++;
+	}
 	return open_sub_file(xfat, xfat->root_cluster, file, path);
 }
 
@@ -383,7 +422,7 @@ xfat_err_t xdir_first_file(xfile_t* file, xfileinfo_t* info) {
 	u32_t cluster_offset = 0;
 	u32_t moved_bytes = 0;
 	diritem_t* diritem = (diritem_t*)0;
-	xfat_err_t err = locate_file_dir_item(file->xfat, &file->curr_cluster, &cluster_offset, "", &moved_bytes, &diritem);
+	xfat_err_t err = locate_file_dir_item(file->xfat, XFILE_LOCATE_NORMAL, &file->curr_cluster, &cluster_offset, "", &moved_bytes, &diritem);
 	if (err < 0) {
 		return err;
 	}
@@ -403,7 +442,7 @@ xfat_err_t xdir_next_file(xfile_t* file, xfileinfo_t* info) {
 	u32_t cluster_offset = to_cluster_offset(file->xfat, file->pos);
 	u32_t moved_bytes = 0;
 	diritem_t* diritem = (diritem_t*)0;
-	xfat_err_t err = locate_file_dir_item(file->xfat, &file->curr_cluster, &cluster_offset, "", &moved_bytes, &diritem);
+	xfat_err_t err = locate_file_dir_item(file->xfat, XFILE_LOCATE_NORMAL, &file->curr_cluster, &cluster_offset, "", &moved_bytes, &diritem);
 	if (err < 0) {
 		return err;
 	}
