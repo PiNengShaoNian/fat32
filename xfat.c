@@ -407,6 +407,15 @@ xfat_err_t xfile_open(xfat_t* xfat, xfile_t* file, const char* path) {
 	return open_sub_file(xfat, xfat->root_cluster, file, path);
 }
 
+xfat_err_t xfile_open_sub(xfile_t* dir, const char* sub_path, xfile_t* sub_file) {
+	sub_path = skip_first_path_sep(sub_path);
+	if (memcmp(sub_path, ".", 1) == 0) {
+		return FS_ERR_PARAM;
+	}
+
+	return open_sub_file(dir->xfat, dir->start_cluster, sub_file, sub_path);
+}
+
 xfat_err_t xfile_close(xfile_t* file) {
 	return FS_ERR_OK;
 }
