@@ -371,6 +371,83 @@ int dir_traverse_test(void) {
 	return 0;
 }
 
+int file_read_and_check(const char* path, xfile_size_t elem_size, xfile_size_t e_count) {
+	xfile_t file;
+	xfat_err_t err = xfile_open(&xfat, &file, path);
+	if (err != FS_ERR_OK) {
+		printf("open file failed! %s\n", path);
+		return -1;
+	}
+
+	xfile_size_t readed_count = 0;
+	if ((readed_count = xfile_read(read_buffer, elem_size, e_count, &file) > 0)) {
+		xfile_size_t bytes_count = readed_count * elem_size;
+		u32_t num_start = 0;
+		for (u32_t i = 0; i < bytes_count; i += 4) {
+			if (read_buffer[i / 4] != num_start++) {
+				printf("read file failed!\n");
+				return -1;
+			}
+		}
+	}
+
+	if (xfile_error(&file) < 0) {
+		printf("read failed!\n");
+		return -1;
+	}
+
+	xfile_close(&file);
+	return 0;
+}
+
+int fs_read_test(void) {
+	printf("\n file read test\n");
+
+	const char* file_0b_path = "/read/0b.bin";
+	const char* file_1MB_path = "/read/1MB.bin";
+	xfat_err_t err;
+	memset(read_buffer, 0, sizeof(read_buffer));
+
+	err = file_read_and_check(file_0b_path, 32, 1);
+	if (err < 0) {
+		printf("read failed!");
+		return -1;
+	}
+
+	err = file_read_and_check(file_1MB_path, disk.sector_size - 32, 2);
+	if (err < 0) {
+		printf("read failed!\n");
+		return -1;
+	}
+
+	err = file_read_and_check(file_1MB_path, disk.sector_size, 2);
+	if (err < 0) {
+		printf("read failed!\n");
+		return -1;
+	}
+
+	err = file_read_and_check(file_1MB_path, disk.sector_size + 14, 2);
+	if (err < 0) {
+		printf("read failed!\n");
+		return -1;
+	}
+
+	err = file_read_and_check(file_1MB_path, xfat.cluster_byte_size + 32, 2);
+	if (err < 0) {
+		printf("read failed!\n");
+		return -1;
+	}
+
+	err = file_read_and_check(file_1MB_path, 2 * xfat.cluster_byte_size + 32, 2);
+	if (err < 0) {
+		printf("read failed!\n");
+		return -1;
+	}
+
+	printf("\n file read test ok!\n");
+	return 0;
+}
+
 int main(void) {
 	for (int i = 0; i < sizeof(write_buffer) / sizeof(u32_t); i++) {
 		write_buffer[i] = i;
@@ -419,9 +496,15 @@ int main(void) {
 	//	return err;
 	//}
 
-	err = dir_traverse_test();
-	if (err) {
-		return err;
+	//err = dir_traverse_test();
+	//if (err) {
+	//	return err;
+	//}
+
+	err = fs_read_test();
+	if (err < 0) {
+		printf("read test failed\n");
+		return -1;
 	}
 
 	err = xdisk_close(&disk);

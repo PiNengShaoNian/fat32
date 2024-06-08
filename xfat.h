@@ -184,4 +184,6 @@ xfat_err_t xdir_next_file(xfile_t* file, xfileinfo_t* info);
 xfat_err_t xfile_error(xfile_t* file);
 void xfile_clear_err(xfile_t* file);
 
+xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file);
+
 #endif
