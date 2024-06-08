@@ -149,6 +149,12 @@ typedef struct _xfile_t {
 	u32_t curr_cluster;
 } xfile_t;
 
+typedef enum _xfile_origin_t {
+	XFAT_SEEK_SET,
+	XFAT_SEEK_CUR,
+	XFAT_SEEK_END,
+} xfile_origin_t;
+
 typedef struct _xfile_time_t {
 	u16_t year;
 	u8_t month;
@@ -185,5 +191,9 @@ xfat_err_t xfile_error(xfile_t* file);
 void xfile_clear_err(xfile_t* file);
 
 xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file);
+
+xfat_err_t xfile_eof(xfile_t* file);
+xfile_size_t xfile_tell(xfile_t* file);
+xfat_err_t xfile_seek(xfile_t* file, xfile_ssize_t ssize, xfile_origin_t origin);
 
 #endif

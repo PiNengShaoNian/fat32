@@ -528,7 +528,7 @@ xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count
 				return 0;
 			}
 
-			memcpy(read_buffer, temp_buffer, curr_read_bytes);
+			memcpy(read_buffer, temp_buffer + sector_offset, curr_read_bytes);
 			read_buffer += curr_read_bytes;
 			bytes_to_read -= curr_read_bytes;
 		}
@@ -569,4 +569,72 @@ xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count
 
 	file->err = is_cluster_valid(file->curr_cluster) ? FS_ERR_OK : FS_ERR_EOF;
 	return r_count_readed / elem_size;
+}
+
+xfat_err_t xfile_eof(xfile_t* file) {
+	return file->pos >= file->size ? FS_ERR_EOF : FS_ERR_OK;
+}
+
+xfile_size_t xfile_tell(xfile_t* file) {
+	return file->pos;
+}
+
+xfat_err_t xfile_seek(xfile_t* file, xfile_ssize_t offset, xfile_origin_t origin) {
+	xfile_ssize_t final_pos;
+
+	switch (origin) {
+	case XFAT_SEEK_SET:
+		final_pos = offset;
+		break;
+	case XFAT_SEEK_CUR:
+		final_pos = file->pos + offset;
+		break;
+	case XFAT_SEEK_END:
+		final_pos = file->size + offset;
+		break;
+	default:
+		return FS_ERR_PARAM;
+	}
+
+	if (final_pos < 0 || final_pos >= file->size) {
+		return FS_ERR_PARAM;
+	}
+
+	offset = final_pos - file->pos;
+	u32_t curr_cluster;
+	u32_t curr_pos;
+	u32_t offset_to_move;
+	if (offset > 0) {
+		curr_cluster = file->curr_cluster;
+		curr_pos = file->pos;
+		offset_to_move = (xfile_size_t)offset;
+	}
+	else {
+		curr_cluster = file->start_cluster;
+		curr_pos = 0;
+		offset_to_move = (xfile_size_t)final_pos;
+	}
+
+	while (offset_to_move > 0) {
+		u32_t cluster_offset = to_cluster_offset(file->xfat, curr_pos);
+		xfile_size_t curr_move = offset_to_move;
+		if (cluster_offset + curr_move < file->xfat->cluster_byte_size) {
+			curr_pos += curr_move;
+			break;
+		}
+		else {
+			curr_move = file->xfat->cluster_byte_size - cluster_offset;
+			curr_pos += curr_move;
+			offset_to_move -= curr_move;
+			xfat_err_t err = get_next_cluster(file->xfat, curr_cluster, &curr_cluster);
+			if (err < 0) {
+				file->err = err;
+				return err;
+			}
+		}
+	}
+
+	file->pos = curr_pos;
+	file->curr_cluster = curr_cluster;
+	return FS_ERR_OK;
 }

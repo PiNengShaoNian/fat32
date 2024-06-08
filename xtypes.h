@@ -8,6 +8,7 @@ typedef uint16_t u16_t;
 typedef uint32_t u32_t;
 typedef uint64_t u64_t;
 typedef u32_t xfile_size_t;
+typedef int64_t xfile_ssize_t;
 
 typedef enum _xfat_err_t {
 	FS_ERR_EOF = 1,
