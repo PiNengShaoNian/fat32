@@ -468,3 +468,11 @@ xfat_err_t xdir_next_file(xfile_t* file, xfileinfo_t* info) {
 	copy_file_info(info, diritem);
 	return err;
 }
+
+xfat_err_t xfile_error(xfile_t* file) {
+	return file->err;
+}
+
+void xfile_clear_err(xfile_t* file) {
+	file->err = FS_ERR_OK;
+}

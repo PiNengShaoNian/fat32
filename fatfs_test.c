@@ -324,7 +324,7 @@ int list_sub_file(xfile_t* file, int curr_depth) {
 			printf("%s\n", fileinfo.file_name);
 		}
 	} while ((err = xdir_next_file(file, &fileinfo)) == 0);
-
+	return 0;
 }
 
 int dir_traverse_test(void) {

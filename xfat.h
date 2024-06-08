@@ -181,4 +181,7 @@ xfat_err_t xfile_close(xfile_t* file);
 xfat_err_t xdir_first_file(xfile_t* file, xfileinfo_t* info);
 xfat_err_t xdir_next_file(xfile_t* file, xfileinfo_t* info);
 
+xfat_err_t xfile_error(xfile_t* file);
+void xfile_clear_err(xfile_t* file);
+
 #endif
