@@ -15,6 +15,11 @@ extern u8_t temp_buffer[512];
 #define to_sector_offset(disk, offset) ((offset) % (disk)->sector_size)
 #define to_cluster_offset(xfat, pos) ((pos) % (xfat)->cluster_byte_size)
 
+u32_t to_phy_sector(xfat_t* xfat, u32_t cluster, u32_t cluster_offset) {
+	xdisk_t* disk = xfat_get_disk(xfat);
+	return cluster_first_sector(xfat, cluster) + to_sector(disk, cluster_offset);
+}
+
 static xfat_err_t parse_fat_header(xfat_t* xfat, dbr_t* dbr) {
 	xdisk_part_t* xdisk_part = xfat->disk_part;
 
@@ -91,6 +96,77 @@ xfat_err_t read_cluster(xfat_t* xfat, u8_t* buffer, u32_t cluster, u32_t count) 
 	return FS_ERR_OK;
 }
 
+xfat_err_t move_cluster_pos(xfat_t* xfat, u32_t curr_cluster, u32_t curr_offset, u32_t move_bytes, u32_t* next_cluster, u32_t* next_offset) {
+	if (curr_offset + move_bytes >= xfat->cluster_byte_size) {
+		xfat_err_t err = get_next_cluster(xfat, curr_cluster, next_cluster);
+		if (err < 0) {
+			return err;
+		}
+
+		*next_offset = 0;
+	}
+	else {
+		*next_cluster = curr_cluster;
+		*next_offset = curr_offset + move_bytes;
+	}
+	return FS_ERR_OK;
+}
+
+xfat_err_t get_next_diritem(xfat_t* xfat, u8_t type, u32_t start_cluster,
+	u32_t start_offset, u32_t* found_cluster, u32_t* found_offset,
+	u32_t* next_cluster, u32_t* next_offset, u8_t* temp_buffer, diritem_t** diritem) {
+	diritem_t* r_diritem;
+	while (is_cluster_valid(start_cluster)) {
+		xfat_err_t err = move_cluster_pos(xfat, start_cluster, start_offset, sizeof(diritem_t), next_cluster, next_offset);
+		if (err < 0) {
+			return err;
+		}
+
+		u32_t sector_offset = to_sector_offset(xfat_get_disk(xfat), start_offset);
+		if (start_offset == 0) {
+			u32_t curr_sector = to_phy_sector(xfat, start_cluster, start_offset);
+			err = xdisk_read_sector(xfat_get_disk(xfat), temp_buffer, curr_sector, 1);
+			if (err < 0) {
+				return err;
+			}
+		}
+
+		r_diritem = (diritem_t*)(temp_buffer + sector_offset);
+		switch (r_diritem->DIR_Name[0]) {
+		case DIRITEM_NAME_END:
+			if (type & DIRITEM_GET_END) {
+				*diritem = r_diritem;
+				*found_cluster = start_cluster;
+				*found_offset = start_offset;
+				return FS_ERR_OK;
+			}
+			break;
+		case DIRITEM_NAME_FREE:
+			if (type & DIRITEM_GET_FREE) {
+				*diritem = r_diritem;
+				*found_cluster = start_cluster;
+				*found_offset = start_offset;
+				return FS_ERR_OK;
+			}
+			break;
+		default:
+			if (type & DIRITEM_GET_USED) {
+				*diritem = r_diritem;
+				*found_cluster = start_cluster;
+				*found_offset = start_offset;
+				return FS_ERR_OK;
+			}
+			break;
+		}
+
+		start_cluster = *next_cluster;
+		start_offset = *next_offset;
+	}
+
+	*diritem = (diritem_t*)0;
+	return FS_ERR_EOF;
+}
+
 int is_cluster_valid(u32_t cluster) {
 	cluster &= 0x0FFFFFFF;
 	return (cluster < 0x0FFFFFF0) && (cluster >= 2);
@@ -160,6 +236,57 @@ static xfat_err_t to_sfn(char* dest_name, const char* my_name) {
 		}
 	}
 	return FS_ERR_OK;
+}
+
+/**
+ * 检查sfn字符串中是否是大写。如果中间有任意小写，都认为是小写
+ * @param name
+ * @return
+ */
+static u8_t get_sfn_case_cfg(const char* sfn_name) {
+	u8_t case_cfg = 0;
+
+	int name_len;
+	const char* src_name = sfn_name;
+	const char* ext_dot;
+	const char* p;
+	int ext_existed;
+
+	// 跳过开头的分隔符
+	while (is_path_sep(*src_name)) {
+		src_name++;
+	}
+
+	// 找到第一个斜杠之前的字符串，将ext_dot定位到那里，且记录有效长度
+	ext_dot = src_name;
+	p = src_name;
+	name_len = 0;
+	while ((*p != '\0') && !is_path_sep(*p)) {
+		if (*p == '.') {
+			ext_dot = p;
+		}
+		p++;
+		name_len++;
+	}
+
+	// 如果文件名以.结尾，意思就是没有扩展名？
+	// todo: 长文件名处理?
+	ext_existed = (ext_dot > src_name) && (ext_dot < (src_name + name_len - 1));
+	for (p = src_name; p < src_name + name_len; p++) {
+		if (ext_existed) {
+			if (p < ext_dot) { // 文件名主体部分大小写判断
+				case_cfg |= islower(*p) ? DIRITEM_NTRES_BODY_LOWER : 0;
+			}
+			else if (p > ext_dot) {
+				case_cfg |= islower(*p) ? DIRITEM_NTRES_EXT_LOWER : 0;
+			}
+		}
+		else {
+			case_cfg |= islower(*p) ? DIRITEM_NTRES_BODY_LOWER : 0;
+		}
+	}
+
+	return case_cfg;
 }
 
 static int is_filename_match(const char* name_in_dir, const char* to_find_name) {
@@ -636,5 +763,54 @@ xfat_err_t xfile_seek(xfile_t* file, xfile_ssize_t offset, xfile_origin_t origin
 
 	file->pos = curr_pos;
 	file->curr_cluster = curr_cluster;
+	return FS_ERR_OK;
+}
+
+xfat_err_t xfile_rename(xfat_t* xfat, const char* path, const char* new_name) {
+	diritem_t* diritem = (diritem_t*)0;
+	u32_t curr_cluster;
+	u32_t curr_offset;
+	u32_t next_cluster;
+	u32_t next_offset;
+	u32_t found_cluster;
+	u32_t found_offset;
+
+	curr_cluster = xfat->root_cluster;
+	curr_offset = 0;
+	const char* curr_path = path;
+	for (; curr_path && *curr_path != '\0'; curr_path = get_child_path(curr_path)) {
+		do {
+			xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_USED, curr_cluster, curr_offset,
+				&found_cluster, &found_offset, &next_cluster, &next_offset, temp_buffer, &diritem);
+			if (err < 0) {
+				return err;
+			}
+
+			if (diritem == (diritem_t*)0) {
+				return FS_ERR_NONE;
+			}
+
+			if (is_filename_match((char*)diritem->DIR_Name, curr_path)) {
+				if (get_file_type(diritem) == FAT_DIR) {
+					curr_cluster = get_diritem_cluster(diritem);
+					curr_offset = 0;
+				}
+
+				break;
+			}
+
+			curr_cluster = next_cluster;
+			curr_offset = next_offset;
+		} while (1);
+	}
+
+	if (diritem && !curr_path) {
+		u32_t dir_sector = to_phy_sector(xfat, found_cluster, found_offset);
+		to_sfn((char*)diritem->DIR_Name, new_name);
+		diritem->DIR_NTRes &= ~DIRITEM_NTRES_CASE_MASK;
+		diritem->DIR_NTRes |= get_sfn_case_cfg(new_name);
+		return xdisk_write_sector(xfat_get_disk(xfat), temp_buffer, dir_sector, 1);
+	}
+
 	return FS_ERR_OK;
 }

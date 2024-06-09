@@ -57,6 +57,7 @@ typedef struct _dbr_t {
 
 #define DIRITEM_NTRES_BODY_LOWER 0x08 // (1 << 3)
 #define DIRITEM_NTRES_EXT_LOWER 0x10 // (1 << 4)
+#define DIRITEM_NTRES_CASE_MASK 0x18
 
 #define DIRITEM_ATTR_READ_ONLY          0x01                // 目录项属性：只读
 #define DIRITEM_ATTR_HIDDEN             0x02                // 目录项属性：隐藏
@@ -65,6 +66,11 @@ typedef struct _dbr_t {
 #define DIRITEM_ATTR_DIRECTORY          0x10                // 目录项属性：目录
 #define DIRITEM_ATTR_ARCHIVE            0x20                // 目录项属性：归档
 #define DIRITEM_ATTR_LONG_NAME          0x0F                // 目录项属性：长文件名
+
+#define DIRITEM_GET_FREE (1 << 0)
+#define DIRITEM_GET_USED (1 << 1)
+#define DIRITEM_GET_END (1 << 2)
+#define DIRITEM_GET_ALL (0XFF)
 
 /**
  * FAT目录项的日期类型
@@ -195,5 +201,7 @@ xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count
 xfat_err_t xfile_eof(xfile_t* file);
 xfile_size_t xfile_tell(xfile_t* file);
 xfat_err_t xfile_seek(xfile_t* file, xfile_ssize_t ssize, xfile_origin_t origin);
+
+xfat_err_t xfile_rename(xfat_t* xfat, const char* path, const char* new_name);
 
 #endif

@@ -583,6 +583,51 @@ int fs_seek_test(void) {
 	return 0;
 }
 
+xfat_err_t fs_modify_file_test(void) {
+	const char dir_path[] = "/modify/a0/a1/a2/";
+	const char filename1[] = "ABC.efg";
+	const char filename2[] = "efg.ABC";
+
+	char curr_path[64];
+
+	printf("modify file attr test...\n");
+	printf("\n Before rename:\n");
+	xfile_t file;
+	xfat_err_t err = xfile_open(&xfat, &file, dir_path);
+	if (err < 0) {
+		printf("open dir failed!\n");
+		return err;
+	}
+
+	err = list_sub_file(&file, 0);
+	if (err < 0) {
+		return err;
+	}
+
+	xfile_close(&file);
+
+	sprintf(curr_path, "%s%s", dir_path, filename1);
+	err = xfile_open(&xfat, &file, curr_path);
+	char* new_name;
+	if (err < 0) {
+		sprintf(curr_path, "%s%s", dir_path, filename2);
+		new_name = filename1;
+	}
+	else {
+		sprintf(curr_path, "%s%s", dir_path, filename1);
+		new_name = filename2;
+	}
+
+	err = xfile_rename(&xfat, curr_path, new_name);
+	if (err < 0) {
+		printf("rename failed: %s -- to -- %s\n", curr_path, new_name);
+		return err;
+	}
+
+	xfile_close(&file);
+	return FS_ERR_OK;
+}
+
 int main(void) {
 	for (int i = 0; i < sizeof(write_buffer) / sizeof(u32_t); i++) {
 		write_buffer[i] = i;
@@ -642,7 +687,12 @@ int main(void) {
 	//	return -1;
 	//}
 
-	err = fs_seek_test();
+	//err = fs_seek_test();
+	//if (err) {
+	//	return err;
+	//}
+
+	err = fs_modify_file_test();
 	if (err) {
 		return err;
 	}
