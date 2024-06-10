@@ -292,7 +292,7 @@ void show_file_info(xfileinfo_t* fileinfo) {
 	printf("\n");
 }
 
-int list_sub_file(xfile_t* file, int curr_depth) {
+int list_sub_files(xfile_t* file, int curr_depth) {
 	xfileinfo_t fileinfo;
 	xfat_err_t err = xdir_first_file(file, &fileinfo);
 	if (err) {
@@ -313,7 +313,7 @@ int list_sub_file(xfile_t* file, int curr_depth) {
 
 			xfile_close(file);
 
-			err = list_sub_file(&sub_file, curr_depth + 1);
+			err = list_sub_files(&sub_file, curr_depth + 1);
 			if (err < 0) {
 				return err;
 			}
@@ -355,7 +355,7 @@ int dir_traverse_test(void) {
 	}
 
 	printf("\n try to list all sub files\n");
-	err = list_sub_file(&top_dir, 0);
+	err = list_sub_files(&top_dir, 0);
 	if (err < 0) {
 		printf("list file failed\n");
 		return -1;
@@ -599,7 +599,7 @@ xfat_err_t fs_modify_file_test(void) {
 		return err;
 	}
 
-	err = list_sub_file(&file, 0);
+	err = list_sub_files(&file, 0);
 	if (err < 0) {
 		return err;
 	}
@@ -625,6 +625,62 @@ xfat_err_t fs_modify_file_test(void) {
 	}
 
 	xfile_close(&file);
+
+	printf("\n After rename:\n");
+
+	sprintf(curr_path, "%s%s", dir_path, new_name);
+
+	// 修改文件时间
+	xfile_time_t timeinfo;
+	timeinfo.year = 2030;
+	timeinfo.month = 10;
+	timeinfo.day = 12;
+	timeinfo.hour = 13;
+	timeinfo.minute = 32;
+	timeinfo.second = 12;
+	err = xfile_set_atime(&xfat, curr_path, &timeinfo);
+	if (err < 0) {
+		printf("set acc time failed!\n");
+		return err;
+	}
+
+	timeinfo.year = 2031;
+	timeinfo.month = 11;
+	timeinfo.day = 13;
+	timeinfo.hour = 14;
+	timeinfo.minute = 33;
+	timeinfo.second = 13;
+	err = xfile_set_mtime(&xfat, curr_path, &timeinfo);
+	if (err < 0) {
+		printf("set modify time failed!\n");
+		return err;
+	}
+
+	timeinfo.year = 2032;
+	timeinfo.month = 12;
+	timeinfo.day = 14;
+	timeinfo.hour = 15;
+	timeinfo.minute = 35;
+	timeinfo.second = 14;
+	err = xfile_set_ctime(&xfat, curr_path, &timeinfo);
+	if (err < 0) {
+		printf("set create time failed!\n");
+		return err;
+	}
+
+	// 重命名后，列表显示所有文件，显示命名状态
+	err = xfile_open(&xfat, &file, dir_path);
+	if (err < 0) {
+		printf("Open dir failed!\n");
+		return err;
+	}
+
+	err = list_sub_files(&file, 0);
+	if (err < 0) {
+		return err;
+	}
+	xfile_close(&file);
+
 	return FS_ERR_OK;
 }
 

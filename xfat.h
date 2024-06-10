@@ -161,6 +161,12 @@ typedef enum _xfile_origin_t {
 	XFAT_SEEK_END,
 } xfile_origin_t;
 
+typedef enum _stime_type_t {
+	XFAT_TIME_ATIME,
+	XFAT_TIME_CTIME,
+	XFAT_TIME_MTIME,
+} stime_type_t;
+
 typedef struct _xfile_time_t {
 	u16_t year;
 	u8_t month;
@@ -203,5 +209,9 @@ xfile_size_t xfile_tell(xfile_t* file);
 xfat_err_t xfile_seek(xfile_t* file, xfile_ssize_t ssize, xfile_origin_t origin);
 
 xfat_err_t xfile_rename(xfat_t* xfat, const char* path, const char* new_name);
+
+xfat_err_t xfile_set_atime(xfat_t* xfat, const char* path, xfile_time_t* time);
+xfat_err_t xfile_set_mtime(xfat_t* xfat, const char* path, xfile_time_t* time);
+xfat_err_t xfile_set_ctime(xfat_t* xfat, const char* path, xfile_time_t* time);
 
 #endif

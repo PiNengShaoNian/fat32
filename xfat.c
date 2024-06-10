@@ -814,3 +814,95 @@ xfat_err_t xfile_rename(xfat_t* xfat, const char* path, const char* new_name) {
 
 	return FS_ERR_OK;
 }
+
+/**
+ * 设置diritem中相应的时间，用作文件时间修改的回调函数
+ * @param xfat xfat结构
+ * @param dir_item 目录结构项
+ * @param arg1 修改的时间类型
+ * @param arg2 新的时间
+ * @return
+ */
+static xfat_err_t set_file_time(xfat_t* xfat, const char* path, stime_type_t time_type, xfile_time_t* time) {
+	diritem_t* diritem = (diritem_t*)0;
+	u32_t curr_cluster, curr_offset;
+	u32_t next_cluster, next_offset;
+	u32_t found_cluster, found_offset;
+	const char* curr_path;
+
+	curr_cluster = xfat->root_cluster;
+	curr_offset = 0;
+	for (curr_path = path; curr_path != '\0'; curr_path = get_child_path(curr_path)) {
+		do {
+			xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_USED, curr_cluster, curr_offset,
+				&found_cluster, &found_offset, &next_cluster, &next_offset, temp_buffer, &diritem);
+			if (err < 0) {
+				return err;
+			}
+
+			if (diritem == (diritem_t*)0) {    // 已经搜索到目录结束
+				return FS_ERR_NONE;
+			}
+
+			if (is_filename_match((const char*)diritem->DIR_Name, curr_path)) {
+				// 找到，比较下一级子目录
+				if (get_child_path(curr_path)) {
+					curr_cluster = get_diritem_cluster(diritem);
+					curr_offset = 0;
+				}
+				break;
+			}
+
+			curr_cluster = next_cluster;
+			curr_offset = next_offset;
+		} while (1);
+	}
+
+	if (diritem && !curr_path) {
+		// 这种方式只能用于SFN文件项重命名
+		u32_t dir_sector = to_phy_sector(xfat, curr_cluster, curr_offset);
+
+		// 根据文件名的实际情况，重新配置大小写
+		switch (time_type) {
+		case XFAT_TIME_CTIME:
+			diritem->DIR_CrtDate.year_from_1980 = (u16_t)(time->year - 1980);
+			diritem->DIR_CrtDate.month = time->month;
+			diritem->DIR_CrtDate.day = time->day;
+			diritem->DIR_CrtTime.hour = time->hour;
+			diritem->DIR_CrtTime.minute = time->minute;
+			diritem->DIR_CrtTime.second_2 = (u16_t)(time->second / 2);
+			diritem->DIR_CrtTimeTeenth = (u8_t)(time->second % 2 * 1000 / 100);
+			break;
+		case XFAT_TIME_ATIME:
+			diritem->DIR_LastAccDate.year_from_1980 = (u16_t)(time->year - 1980);
+			diritem->DIR_LastAccDate.month = time->month;
+			diritem->DIR_LastAccDate.day = time->day;
+			break;
+		case XFAT_TIME_MTIME:
+			diritem->DIR_WrtDate.year_from_1980 = (u16_t)(time->year - 1980);
+			diritem->DIR_WrtDate.month = time->month;
+			diritem->DIR_WrtDate.day = time->day;
+			diritem->DIR_WrtTime.hour = time->hour;
+			diritem->DIR_WrtTime.minute = time->minute;
+			diritem->DIR_WrtTime.second_2 = (u16_t)(time->second / 2);
+			break;
+		}
+
+		return xdisk_write_sector(xfat_get_disk(xfat), temp_buffer, dir_sector, 1);
+	}
+
+	return FS_ERR_OK;
+
+}
+
+xfat_err_t xfile_set_atime(xfat_t* xfat, const char* path, xfile_time_t* time) {
+	return set_file_time(xfat, path, XFAT_TIME_ATIME, time);
+}
+
+xfat_err_t xfile_set_mtime(xfat_t* xfat, const char* path, xfile_time_t* time) {
+	return set_file_time(xfat, path, XFAT_TIME_MTIME, time);
+}
+
+xfat_err_t xfile_set_ctime(xfat_t* xfat, const char* path, xfile_time_t* time) {
+	return set_file_time(xfat, path, XFAT_TIME_CTIME, time);
+}
