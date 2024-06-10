@@ -505,12 +505,14 @@ static xfat_err_t open_sub_file(xfat_t* xfat, u32_t dir_cluster, xfile_t* file, 
 
 		file->size = diritem->DIR_FileSize;
 		file->type = get_file_type(diritem);
+		file->attr = (diritem->DIR_Attr & DIRITEM_ATTR_READ_ONLY) ? XFILE_ATTR_READONLY : 0;
 		file->start_cluster = file_start_cluster;
 		file->curr_cluster = file_start_cluster;
 	}
 	else {
 		file->size = 0;
 		file->type = FAT_DIR;
+		file->attr = 0;
 		file->start_cluster = dir_cluster;
 		file->curr_cluster = dir_cluster;
 	}
@@ -605,6 +607,29 @@ void xfile_clear_err(xfile_t* file) {
 	file->err = FS_ERR_OK;
 }
 
+static xfat_err_t move_file_pos(xfile_t* file, u32_t move_bytes) {
+	u32_t to_move = move_bytes;
+	u32_t cluster_offset;
+
+	// 不要超过文件的大小
+	if (file->pos + move_bytes >= file->size) {
+		to_move = file->size - file->pos;
+	}
+
+	// 簇间移动调整，需要调整簇
+	cluster_offset = to_cluster_offset(file->xfat, file->pos);
+	if (cluster_offset + to_move >= file->xfat->cluster_byte_size) {
+		xfat_err_t err = get_next_cluster(file->xfat, file->curr_cluster, &file->curr_cluster);
+		if (err != FS_ERR_OK) {
+			file->err = err;
+			return err;
+		}
+	}
+
+	file->pos += to_move;
+	return FS_ERR_OK;
+}
+
 xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file) {
 	xfile_size_t bytes_to_read = count * elem_size;
 	u8_t* read_buffer = (u8_t*)buffer;
@@ -624,16 +649,17 @@ xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count
 	}
 
 	xdisk_t* disk = file_get_disk(file);
-	// 当前处于curr_cluster中的扇区编号
-	u32_t cluster_sector = to_sector(disk, to_cluster_offset(file->xfat, file->pos));
-	// 点前处于一个扇区中的哪一个byte
-	u32_t sector_offset = to_sector_offset(disk, file->pos);
 	xfile_size_t r_count_readed = 0;
 
 	while ((bytes_to_read > 0) && is_cluster_valid(file->curr_cluster)) {
 		xfat_err_t err;
 		xfile_size_t curr_read_bytes = 0;
 		u32_t sector_count = 0;
+		// 当前处于curr_cluster中的扇区编号
+		u32_t cluster_sector = to_sector(disk, to_cluster_offset(file->xfat, file->pos));
+		// 点前处于一个扇区中的哪一个byte
+		u32_t sector_offset = to_sector_offset(disk, file->pos);
+
 		// 当前处于fat文件系统中的哪一个扇区
 		u32_t start_sector = cluster_first_sector(file->xfat, file->curr_cluster) + cluster_sector;
 		// 1) 如果读取的左边界不是扇区对齐的，先读取玩第一部分保证其左边界扇区对齐
@@ -676,25 +702,102 @@ xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count
 			bytes_to_read -= curr_read_bytes;
 		}
 
-		sector_offset += curr_read_bytes;
 		r_count_readed += curr_read_bytes;
-		if (sector_offset >= disk->sector_size) {
-			sector_offset = 0;
-			cluster_sector += sector_count;
-			if (cluster_sector >= file->xfat->sec_per_cluster) {
-				cluster_sector = 0;
-				err = get_next_cluster(file->xfat, file->curr_cluster, &file->curr_cluster);
-				if (err != FS_ERR_OK) {
-					file->err = err;
-					return r_count_readed / elem_size;
-				}
-			}
-		}
 
-		file->pos += curr_read_bytes;
+		err = move_file_pos(file, curr_read_bytes);
+		if (err) return 0;
 	}
 
-	file->err = is_cluster_valid(file->curr_cluster) ? FS_ERR_OK : FS_ERR_EOF;
+	file->err = file->pos == file->size;
+	return r_count_readed / elem_size;
+}
+
+xfile_size_t xfile_write(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file) {
+	xfile_size_t bytes_to_write = count * elem_size;
+	u8_t* write_buffer = (u8_t*)buffer;
+
+	if (file->type != FAT_FILE) {
+		file->err = FS_ERR_FSTYPE;
+		return 0;
+	}
+
+	if (file->attr & XFILE_ATTR_READONLY) {
+		file->err = FS_ERR_READONLY;
+		return 0;
+	}
+
+	if (bytes_to_write == 0) {
+		file->err = FS_ERR_OK;
+		return 0;
+	}
+
+	xdisk_t* disk = file_get_disk(file);
+	xfile_size_t r_count_readed = 0;
+
+	while ((bytes_to_write > 0) && is_cluster_valid(file->curr_cluster)) {
+		xfat_err_t err;
+		xfile_size_t curr_write_bytes = 0;
+		u32_t sector_count = 0;
+		// 当前处于curr_cluster中的扇区编号
+		u32_t cluster_sector = to_sector(disk, to_cluster_offset(file->xfat, file->pos));
+		// 点前处于一个扇区中的哪一个byte
+		u32_t sector_offset = to_sector_offset(disk, file->pos);
+
+		// 当前处于fat文件系统中的哪一个扇区
+		u32_t start_sector = cluster_first_sector(file->xfat, file->curr_cluster) + cluster_sector;
+		// 1) 如果读取的左边界不是扇区对齐的，先读取玩第一部分保证其左边界扇区对齐
+		// 2) 如果左边界是扇区对齐的，但是读取的内容大小小于一个扇区则也可以走这个逻辑
+		if ((sector_offset != 0) || (!sector_offset && (bytes_to_write < disk->sector_size))) {
+			sector_count = 1;
+			curr_write_bytes = bytes_to_write;
+
+			if (sector_offset != 0) {
+				// 先读取内容的一部分保证左边界能够扇区对齐
+				if (sector_offset + bytes_to_write > disk->sector_size) {
+					curr_write_bytes = disk->sector_size - sector_offset;
+				}
+			}
+
+			err = xdisk_read_sector(disk, temp_buffer, start_sector, 1);
+			if (err < 0) {
+				file->err = err;
+				return 0;
+			}
+
+			memcpy(temp_buffer + sector_offset, write_buffer, curr_write_bytes);
+			err = xdisk_write_sector(disk, temp_buffer, start_sector, 1);
+			if (err < 0) {
+				file->err = err;
+				return 0;
+			}
+
+			write_buffer += curr_write_bytes;
+			bytes_to_write -= curr_write_bytes;
+		}
+		else {
+			sector_count = to_sector(disk, bytes_to_write);
+			if ((cluster_sector + sector_count) > file->xfat->sec_per_cluster) {
+				sector_count = file->xfat->sec_per_cluster - cluster_sector;
+			}
+
+			err = xdisk_write_sector(disk, write_buffer, start_sector, sector_count);
+			if (err != FS_ERR_OK) {
+				file->err = err;
+				return r_count_readed / elem_size;
+			}
+
+			curr_write_bytes = sector_count * disk->sector_size;
+			write_buffer += curr_write_bytes;
+			bytes_to_write -= curr_write_bytes;
+		}
+
+		r_count_readed += curr_write_bytes;
+
+		err = move_file_pos(file, curr_write_bytes);
+		if (err) return 0;
+	}
+
+	file->err = file->pos == file->size;
 	return r_count_readed / elem_size;
 }
 

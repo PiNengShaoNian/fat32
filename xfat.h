@@ -135,6 +135,7 @@ typedef enum _xfile_type_t {
 	FAT_VOL,
 } xfile_type_t;
 
+#define XFILE_ATTR_READONLY (1 << 0)
 #define SFN_LEN 11
 
 #define XFILE_LOCATE_NORMAL (1 << 0)
@@ -203,6 +204,7 @@ xfat_err_t xfile_error(xfile_t* file);
 void xfile_clear_err(xfile_t* file);
 
 xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file);
+xfile_size_t xfile_write(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file);
 
 xfat_err_t xfile_eof(xfile_t* file);
 xfile_size_t xfile_tell(xfile_t* file);

@@ -684,6 +684,80 @@ xfat_err_t fs_modify_file_test(void) {
 	return FS_ERR_OK;
 }
 
+int file_write_test(const char* path, u32_t elem_size, u32_t elem_count, u32_t write_count) {
+	xfile_t file;
+	xfat_err_t err = xfile_open(&xfat, &file, path);
+	if (err < 0) {
+		printf("Open failed: %s\n", path);
+		return err;
+	}
+
+	for (int i = 0; i < write_count; i++) {
+		err = xfile_write(write_buffer, elem_size, elem_count, &file);
+		if (err < 0) {
+			printf("Write failed!\n");
+			return err;
+		}
+
+		err = xfile_seek(&file, -(xfile_ssize_t)(elem_size * elem_count), XFAT_SEEK_CUR);
+		if (err < 0) {
+			printf("seek failed!\n");
+			return err;
+		}
+
+		memset(read_buffer, 0, sizeof(read_buffer));
+		err = xfile_read(read_buffer, elem_size, elem_count, &file);
+		if (err < 0) {
+			printf("read faild1!\n");
+			return err;
+		}
+
+		int end = elem_size * elem_count / sizeof(u32_t);
+		for (int j = 0; j < end; j++) {
+			if (read_buffer[j] != j) {
+				printf("content different!\n");
+				return -1;
+			}
+		}
+	}
+
+	xfile_close(&file);
+	return FS_ERR_OK;
+}
+
+int fs_write_test(void) {
+	const char* dir_path = "/write/";
+	char file_path[64];
+
+	printf("Write file test!\n");
+	sprintf(file_path, "%s%s", dir_path, "1MB.bin");
+	xfat_err_t err = file_write_test(file_path, 32, 64, 5);
+	if (err < 0) {
+		printf("write file failed!\n");
+		return err;
+	}
+
+	err = file_write_test(file_path, xfat.cluster_byte_size, 12, 5);
+	if (err < 0) {
+		printf("write file failed!\n");
+		return err;
+	}
+
+	err = file_write_test(file_path, xfat.cluster_byte_size + 32, 12, 5);
+	if (err < 0) {
+		printf("write file failed!\n");
+		return err;
+	}
+
+	err = file_write_test(file_path, 3 * xfat.cluster_byte_size + 32, 12, 5);
+	if (err < 0) {
+		printf("write file failed!\n");
+		return err;
+	}
+
+	return FS_ERR_OK;
+}
+
 int main(void) {
 	for (int i = 0; i < sizeof(write_buffer) / sizeof(u32_t); i++) {
 		write_buffer[i] = i;
@@ -748,7 +822,12 @@ int main(void) {
 	//	return err;
 	//}
 
-	err = fs_modify_file_test();
+	//err = fs_modify_file_test();
+	//if (err) {
+	//	return err;
+	//}
+
+	err = fs_write_test();
 	if (err) {
 		return err;
 	}
