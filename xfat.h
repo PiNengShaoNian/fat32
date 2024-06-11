@@ -154,6 +154,9 @@ typedef struct _xfile_t {
 	xfat_err_t err;
 	u32_t start_cluster;
 	u32_t curr_cluster;
+
+	u32_t dir_cluster;
+	u32_t dir_cluster_offset;
 } xfile_t;
 
 typedef enum _xfile_origin_t {

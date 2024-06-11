@@ -15,11 +15,6 @@ extern u8_t temp_buffer[512];
 #define to_sector_offset(disk, offset) ((offset) % (disk)->sector_size)
 #define to_cluster_offset(xfat, pos) ((pos) % (xfat)->cluster_byte_size)
 
-u32_t to_phy_sector(xfat_t* xfat, u32_t cluster, u32_t cluster_offset) {
-	xdisk_t* disk = xfat_get_disk(xfat);
-	return cluster_first_sector(xfat, cluster) + to_sector(disk, cluster_offset);
-}
-
 static xfat_err_t parse_fat_header(xfat_t* xfat, dbr_t* dbr) {
 	xdisk_part_t* xdisk_part = xfat->disk_part;
 
@@ -78,6 +73,11 @@ u32_t cluster_first_sector(xfat_t* xfat, u32_t cluster_no) {
 	u32_t data_start_sector = xfat->fat_start_sector + xfat->fat_tbl_sectors * xfat->fat_tbl_nr;
 	// 需要减去起始的两个保留簇，才是真实的簇号
 	return data_start_sector + (cluster_no - 2) * xfat->sec_per_cluster;
+}
+
+u32_t to_phy_sector(xfat_t* xfat, u32_t cluster, u32_t cluster_offset) {
+	xdisk_t* disk = xfat_get_disk(xfat);
+	return cluster_first_sector(xfat, cluster) + to_sector(disk, cluster_offset);
 }
 
 xfat_err_t read_cluster(xfat_t* xfat, u8_t* buffer, u32_t cluster, u32_t count) {
@@ -326,6 +326,80 @@ static xfile_type_t get_file_type(const diritem_t* diritem) {
 	}
 }
 
+static void set_diritem_cluster(diritem_t* item, u32_t cluster) {
+	item->DIR_FstClusHI = (u16_t)(cluster >> 16);
+	item->DIR_FstClusL0 = (u16_t)(cluster & 0xFFFF);
+}
+
+static xfat_err_t erase_cluster(xfat_t* xfat, u32_t cluster, u32_t erase_state) {
+	u32_t sector = cluster_first_sector(xfat, cluster);
+	xdisk_t* disk = xfat_get_disk(xfat);
+	memset(temp_buffer, erase_state, disk->sector_size);
+	for (u32_t i = 0; i < xfat->sec_per_cluster; i++) {
+		xfat_err_t err = xdisk_write_sector(disk, temp_buffer, sector + i, 1);
+		if (err < 0) {
+			return err;
+		}
+	}
+	return FS_ERR_OK;
+}
+
+static xfat_err_t allocate_free_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t count,
+	u32_t* r_start_cluster, u32_t* r_allocated_count, u8_t en_erase, u8_t erase_data) {
+	xdisk_t* disk = xfat_get_disk(xfat);
+	u32_t cluster_count = xfat->fat_tbl_sectors * disk->sector_size / sizeof(cluster32_t);
+	u32_t allocated_count = 0;
+	u32_t pre_cluster = curr_cluster;
+	cluster32_t* cluster32_buf = (cluster32_t*)xfat->fat_buffer;
+	u32_t start_cluster;
+	for (u32_t i = 2; (i < cluster_count) && (allocated_count < count); i++) {
+		if (cluster32_buf[i].s.next == 0) {
+			cluster32_buf[pre_cluster].s.next = i;
+
+			pre_cluster = i;
+
+			if (++allocated_count == 1) {
+				start_cluster = i;
+			}
+
+			if (allocated_count >= count) {
+				break;
+			}
+		}
+	}
+
+	if (allocated_count) {
+		cluster32_buf[pre_cluster].s.next = CLUSTER_INVALID;
+
+		if (en_erase) {
+			u32_t cluster = start_cluster;
+			for (u32_t i = 0; i < allocated_count; i++) {
+				xfat_err_t err = erase_cluster(xfat, cluster, erase_data);
+				if (err < 0) {
+					return err;
+				}
+				cluster = cluster32_buf[cluster].s.next;
+			}
+		}
+
+		for (u32_t i = 0; i < xfat->fat_tbl_nr; i++) {
+			u32_t start_sector = xfat->fat_start_sector + xfat->fat_tbl_sectors * i;
+			xfat_err_t err = xdisk_write_sector(disk, (u8_t*)xfat->fat_buffer, start_sector, xfat->fat_tbl_sectors);
+			if (err < 0) {
+				return err;
+			}
+		}
+		if (r_allocated_count) {
+			*r_allocated_count = allocated_count;
+		}
+		if (r_start_cluster) {
+			*r_start_cluster = start_cluster;
+		}
+
+		return FS_ERR_OK;
+	}
+}
+
 static u32_t get_diritem_cluster(diritem_t* item) {
 	return (item->DIR_FstClusHI << 16) | item->DIR_FstClusL0;
 }
@@ -359,9 +433,9 @@ static void sfn_to_myname(char* dest_name, const diritem_t* diritem) {
 
 static void copy_date_time(xfile_time_t* dest, const diritem_date_t* date, const diritem_time_t* time, const u8_t mil_sec) {
 	if (date) {
-		dest->year = date->year_from_1980 + 1980;
-		dest->month = date->month;
-		dest->day = date->day;
+		dest->year = (u8_t)date->year_from_1980 + 1980;
+		dest->month = (u8_t)date->month;
+		dest->day = (u8_t)date->day;
 	}
 	else {
 		dest->year = 0;
@@ -370,9 +444,9 @@ static void copy_date_time(xfile_time_t* dest, const diritem_date_t* date, const
 	}
 
 	if (time) {
-		dest->hour = time->hour;
-		dest->minute = time->minute;
-		dest->second = time->second_2 * 2 + mil_sec / 100;
+		dest->hour = (u8_t)time->hour;
+		dest->minute = (u8_t)time->minute;
+		dest->second = (u8_t)time->second_2 * 2 + mil_sec / 100;
 	}
 	else {
 		dest->hour = 0;
@@ -508,6 +582,8 @@ static xfat_err_t open_sub_file(xfat_t* xfat, u32_t dir_cluster, xfile_t* file, 
 		file->attr = (diritem->DIR_Attr & DIRITEM_ATTR_READ_ONLY) ? XFILE_ATTR_READONLY : 0;
 		file->start_cluster = file_start_cluster;
 		file->curr_cluster = file_start_cluster;
+		file->dir_cluster = parent_cluster;
+		file->dir_cluster_offset = parent_cluster_offset;
 	}
 	else {
 		file->size = 0;
@@ -515,6 +591,8 @@ static xfat_err_t open_sub_file(xfat_t* xfat, u32_t dir_cluster, xfile_t* file, 
 		file->attr = 0;
 		file->start_cluster = dir_cluster;
 		file->curr_cluster = dir_cluster;
+		file->dir_cluster = CLUSTER_INVALID;
+		file->dir_cluster_offset = 0;
 	}
 
 	file->xfat = xfat;
@@ -712,6 +790,30 @@ xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count
 	return r_count_readed / elem_size;
 }
 
+static xfat_err_t update_file_size(xfile_t* file, xfile_size_t size) {
+	xdisk_t* disk = file_get_disk(file);
+	u32_t sector = to_phy_sector(file->xfat, file->dir_cluster, file->dir_cluster_offset);
+	u32_t offset = to_sector_offset(disk, file->dir_cluster_offset);
+
+	xfat_err_t err = xdisk_read_sector(disk, temp_buffer, sector, 1);
+	if (err < 0) {
+		file->err = err;
+		return err;
+	}
+
+	diritem_t* diritem = (diritem_t*)(temp_buffer + offset);
+	diritem->DIR_FileSize = size;
+	set_diritem_cluster(diritem, file->start_cluster);
+	err = xdisk_write_sector(disk, temp_buffer, sector, 1);
+	if (err < 0) {
+		file->err = err;
+		return err;
+	}
+
+	file->size = size;
+	return FS_ERR_OK;
+}
+
 xfile_size_t xfile_write(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file) {
 	xfile_size_t bytes_to_write = count * elem_size;
 	u8_t* write_buffer = (u8_t*)buffer;
@@ -732,7 +834,7 @@ xfile_size_t xfile_write(void* buffer, xfile_size_t elem_size, xfile_size_t coun
 	}
 
 	xdisk_t* disk = file_get_disk(file);
-	xfile_size_t r_count_readed = 0;
+	xfile_size_t r_count_writed = 0;
 
 	while ((bytes_to_write > 0) && is_cluster_valid(file->curr_cluster)) {
 		xfat_err_t err;
@@ -783,7 +885,7 @@ xfile_size_t xfile_write(void* buffer, xfile_size_t elem_size, xfile_size_t coun
 			err = xdisk_write_sector(disk, write_buffer, start_sector, sector_count);
 			if (err != FS_ERR_OK) {
 				file->err = err;
-				return r_count_readed / elem_size;
+				return r_count_writed / elem_size;
 			}
 
 			curr_write_bytes = sector_count * disk->sector_size;
@@ -791,14 +893,14 @@ xfile_size_t xfile_write(void* buffer, xfile_size_t elem_size, xfile_size_t coun
 			bytes_to_write -= curr_write_bytes;
 		}
 
-		r_count_readed += curr_write_bytes;
+		r_count_writed += curr_write_bytes;
 
 		err = move_file_pos(file, curr_write_bytes);
 		if (err) return 0;
 	}
 
 	file->err = file->pos == file->size;
-	return r_count_readed / elem_size;
+	return r_count_writed / elem_size;
 }
 
 xfat_err_t xfile_eof(xfile_t* file) {
