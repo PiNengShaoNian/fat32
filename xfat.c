@@ -14,6 +14,8 @@ extern u8_t temp_buffer[512];
 #define to_sector(disk, offset) ((offset) / (disk)->sector_size)
 #define to_sector_offset(disk, offset) ((offset) % (disk)->sector_size)
 #define to_cluster_offset(xfat, pos) ((pos) % (xfat)->cluster_byte_size)
+#define to_cluster(xfat, pos) ((pos) / (xfat)->cluster_byte_size)
+#define to_cluster_count(xfat, size) (to_cluster(xfat, size) + 1)
 
 static xfat_err_t parse_fat_header(xfat_t* xfat, dbr_t* dbr) {
 	xdisk_part_t* xdisk_part = xfat->disk_part;
@@ -351,10 +353,12 @@ static xfat_err_t allocate_free_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t 
 	u32_t allocated_count = 0;
 	u32_t pre_cluster = curr_cluster;
 	cluster32_t* cluster32_buf = (cluster32_t*)xfat->fat_buffer;
-	u32_t start_cluster;
+	u32_t start_cluster = 0;
 	for (u32_t i = 2; (i < cluster_count) && (allocated_count < count); i++) {
 		if (cluster32_buf[i].s.next == 0) {
-			cluster32_buf[pre_cluster].s.next = i;
+			if (is_cluster_valid(pre_cluster)) {
+				cluster32_buf[pre_cluster].s.next = i;
+			}
 
 			pre_cluster = i;
 
@@ -697,10 +701,15 @@ static xfat_err_t move_file_pos(xfile_t* file, u32_t move_bytes) {
 	// 簇间移动调整，需要调整簇
 	cluster_offset = to_cluster_offset(file->xfat, file->pos);
 	if (cluster_offset + to_move >= file->xfat->cluster_byte_size) {
-		xfat_err_t err = get_next_cluster(file->xfat, file->curr_cluster, &file->curr_cluster);
+		u32_t curr_cluster = file->curr_cluster;
+		xfat_err_t err = get_next_cluster(file->xfat, curr_cluster, &curr_cluster);
 		if (err != FS_ERR_OK) {
 			file->err = err;
 			return err;
+		}
+
+		if (is_cluster_valid(curr_cluster)) {
+			file->curr_cluster = curr_cluster;
 		}
 	}
 
@@ -814,6 +823,54 @@ static xfat_err_t update_file_size(xfile_t* file, xfile_size_t size) {
 	return FS_ERR_OK;
 }
 
+static int is_fpos_cluster_end(xfile_t* file) {
+	xfile_size_t cluster_offset = to_cluster_offset(file->xfat, file->pos);
+	return (cluster_offset == 0) && (file->pos == file->size);
+}
+
+static xfat_err_t expand_file(xfile_t* file, xfile_size_t size) {
+	xfat_t* xfat = file->xfat;
+	u32_t curr_cluster_cnt = to_cluster_count(xfat, file->size);
+	u32_t expect_cluster_cnt = to_cluster_count(xfat, size);
+	xfat_err_t err;
+
+	if (curr_cluster_cnt < expect_cluster_cnt) {
+		u32_t cluster_cnt = expect_cluster_cnt - curr_cluster_cnt;
+		u32_t start_free_cluster = 0;
+		u32_t curr_cluster = file->curr_cluster;
+
+		if (file->size > 0) {
+			u32_t next_cluster = curr_cluster;
+			do {
+				curr_cluster = next_cluster;
+				err = get_next_cluster(xfat, curr_cluster, &next_cluster);
+				if (err) {
+					file->err = err;
+					return err;
+				}
+			} while (is_cluster_valid(next_cluster));
+		}
+
+		err = allocate_free_cluster(xfat, curr_cluster, cluster_cnt, &start_free_cluster, 0, 0, 0);
+		if (err) {
+			file->err = err;
+			return err;
+		}
+
+		// 空文件,之前还没有内容簇
+		if (!is_cluster_valid(file->start_cluster)) {
+			file->start_cluster = start_free_cluster;
+			file->curr_cluster = start_free_cluster;
+		}
+		else if (!is_cluster_valid(file->curr_cluster) || is_fpos_cluster_end(file)) {
+			// 链接到已有的簇上
+			file->curr_cluster = start_free_cluster;
+		}
+	}
+
+	return update_file_size(file, size);
+}
+
 xfile_size_t xfile_write(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file) {
 	xfile_size_t bytes_to_write = count * elem_size;
 	u8_t* write_buffer = (u8_t*)buffer;
@@ -835,6 +892,14 @@ xfile_size_t xfile_write(void* buffer, xfile_size_t elem_size, xfile_size_t coun
 
 	xdisk_t* disk = file_get_disk(file);
 	xfile_size_t r_count_writed = 0;
+
+	if (file->size < file->pos + bytes_to_write) {
+		xfat_err_t err = expand_file(file, file->pos + bytes_to_write);
+		if (err < 0) {
+			file->err = err;
+			return 0;
+		}
+	}
 
 	while ((bytes_to_write > 0) && is_cluster_valid(file->curr_cluster)) {
 		xfat_err_t err;
@@ -968,6 +1033,12 @@ xfat_err_t xfile_seek(xfile_t* file, xfile_ssize_t offset, xfile_origin_t origin
 
 	file->pos = curr_pos;
 	file->curr_cluster = curr_cluster;
+	return FS_ERR_OK;
+}
+
+xfat_err_t xfile_size(xfile_t* file, xfile_size_t* size) {
+	*size = file->size;
+
 	return FS_ERR_OK;
 }
 

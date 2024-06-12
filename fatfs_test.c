@@ -755,6 +755,53 @@ int fs_write_test(void) {
 		return err;
 	}
 
+	do {
+		xfile_t file;
+
+		printf("\n expand write file!\n");
+		sprintf(file_path, "%s%s", dir_path, "32KB.bin");
+
+		err = xfile_open(&xfat, &file, file_path);
+		if (err < 0) {
+			printf("Open failed %s\n", file_path);
+		}
+		xfile_size_t size = sizeof(write_buffer);
+		xfile_write(write_buffer, size, 1, &file);
+		err = file.err;
+		if (err < 0) {
+			printf("Write failed %s!\n", file_path);
+			return err;
+		}
+
+		xfile_size_t file_size = 0;
+		err = xfile_size(&file, &file_size);
+		if (file_size != size) {
+			printf("write failed %s!\n", file_path);
+			return err;
+		}
+
+		err = xfile_seek(&file, 0, XFAT_SEEK_SET);
+		if (err < 0) {
+			return err;
+		}
+
+
+		memset(read_buffer, 0, size);
+		err = xfile_read(read_buffer, size, 1, &file);
+		if (err < 0) {
+			printf("read failed!\n");
+			return err;
+		}
+
+		for (int i = 0; i < size / sizeof(read_buffer[0]); i++) {
+			if (read_buffer[i] != write_buffer[i]) {
+				printf("content different!\n");
+				return -1;
+			}
+		}
+		xfile_close(&file);
+	} while (0);
+	printf("write file test end!\n");
 	return FS_ERR_OK;
 }
 

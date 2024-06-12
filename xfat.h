@@ -213,6 +213,7 @@ xfat_err_t xfile_eof(xfile_t* file);
 xfile_size_t xfile_tell(xfile_t* file);
 xfat_err_t xfile_seek(xfile_t* file, xfile_ssize_t ssize, xfile_origin_t origin);
 
+xfat_err_t xfile_size(xfile_t* file, xfile_size_t* size);
 xfat_err_t xfile_rename(xfat_t* xfat, const char* path, const char* new_name);
 
 xfat_err_t xfile_set_atime(xfat_t* xfat, const char* path, xfile_time_t* time);
