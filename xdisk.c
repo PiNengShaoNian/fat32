@@ -30,6 +30,10 @@ xfat_err_t xdisk_write_sector(xdisk_t* disk, u8_t* buffer, u32_t start_sector, u
 	return disk->driver->write_sector(disk, buffer, start_sector, count);
 }
 
+xfat_err_t xdisk_curr_time(struct _xdisk_t* disk, struct _xfile_time_t* timeinfo) {
+	return disk->driver->curr_time(disk, timeinfo);
+}
+
 static xfat_err_t disk_get_extend_part_count(xdisk_t* disk, u32_t start_sector, u32_t* count) {
 	int r_count = 0;
 	u32_t ext_start_sector = start_sector;

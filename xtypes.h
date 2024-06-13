@@ -19,6 +19,9 @@ typedef enum _xfat_err_t {
 	FS_ERR_MEM = -4,
 	FS_ERR_FSTYPE = -5,
 	FS_ERR_READONLY = -6,
+	FS_ERR_EXISTED = -7,
+	FS_ERR_NAME_USED = -8,
+	FS_ERR_DISK_FULL = -9,
 } xfat_err_t;
 
 #endif

@@ -1,11 +1,12 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <time.h>
 #include "xdisk.h"
 #include "xfat.h"
 
 static xfat_err_t xdisk_hw_open(struct _xdisk_t* disk, void* init_data) {
-	const char* path = (const char *)init_data;
+	const char* path = (const char*)init_data;
 	FILE* file = fopen(path, "rb+");
 	if (file == NULL) {
 		char buffer[128];
@@ -63,9 +64,27 @@ static xfat_err_t xdisk_hw_write_sector(struct _xdisk_t* disk, u8_t* buffer, u32
 	return FS_ERR_OK;
 }
 
+xfat_err_t curr_time(struct _xdisk_t* disk, struct _xfile_time_t* timeinfo) {
+	time_t raw_time;
+	struct tm* local_time;
+
+	time(&raw_time);
+	local_time = localtime(&raw_time);
+
+	timeinfo->year = local_time->tm_year + 1900;
+	timeinfo->month = local_time->tm_mon + 1;
+	timeinfo->day = local_time->tm_mday;
+	timeinfo->hour = local_time->tm_hour;
+	timeinfo->minute = local_time->tm_min;
+	timeinfo->second = local_time->tm_sec;
+
+	return FS_ERR_OK;
+}
+
 xdisk_driver_t vdisk_driver = {
 	.open = xdisk_hw_open,
 	.close = xdisk_hw_close,
+	.curr_time = curr_time,
 	.read_sector = xdisk_hw_read_sector,
 	.write_sector = xdisk_hw_write_sector,
 };

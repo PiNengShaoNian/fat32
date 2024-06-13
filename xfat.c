@@ -11,11 +11,12 @@ extern u8_t temp_buffer[512];
 #define xfat_get_disk(xfat) ((xfat)->disk_part->disk)
 #define file_get_disk(file) ((file)->xfat->disk_part->disk)
 #define is_path_sep(ch) (((ch) == '/') || ((ch) == '\\'))
+#define is_path_end(path) ((path) == 0 || (*path == '\0'))
 #define to_sector(disk, offset) ((offset) / (disk)->sector_size)
 #define to_sector_offset(disk, offset) ((offset) % (disk)->sector_size)
 #define to_cluster_offset(xfat, pos) ((pos) % (xfat)->cluster_byte_size)
 #define to_cluster(xfat, pos) ((pos) / (xfat)->cluster_byte_size)
-#define to_cluster_count(xfat, size) (to_cluster(xfat, size) + 1)
+#define to_cluster_count(xfat, size) ((size) ? (to_cluster(xfat, size) + 1) : 0)
 
 static xfat_err_t parse_fat_header(xfat_t* xfat, dbr_t* dbr) {
 	xdisk_part_t* xdisk_part = xfat->disk_part;
@@ -393,15 +394,16 @@ static xfat_err_t allocate_free_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t 
 				return err;
 			}
 		}
-		if (r_allocated_count) {
-			*r_allocated_count = allocated_count;
-		}
-		if (r_start_cluster) {
-			*r_start_cluster = start_cluster;
-		}
-
-		return FS_ERR_OK;
 	}
+
+	if (r_allocated_count) {
+		*r_allocated_count = allocated_count;
+	}
+	if (r_start_cluster) {
+		*r_start_cluster = start_cluster;
+	}
+
+	return FS_ERR_OK;
 }
 
 static u32_t get_diritem_cluster(diritem_t* item) {
@@ -470,24 +472,33 @@ static void copy_file_info(xfileinfo_t* info, const diritem_t* dir_item) {
 	copy_date_time(&info->modify_time, &dir_item->DIR_WrtDate, &dir_item->DIR_WrtTime, 0);
 }
 
+/**
+ * 检查文件名和类型是否匹配
+ * @param dir_item
+ * @param locate_type
+ * @return
+ */
 static u8_t is_locate_type_match(diritem_t* dir_item, u8_t locate_type) {
 	u8_t match = 1;
 
 	if ((dir_item->DIR_Attr & DIRITEM_ATTR_SYSTEM) && !(locate_type & XFILE_LOCATE_SYSTEM)) {
-		match = 0;
+		match = 0;  // 不显示系统文件
 	}
 	else if ((dir_item->DIR_Attr & DIRITEM_ATTR_HIDDEN) && !(locate_type & XFILE_LOCATE_HIDDEN)) {
-		match = 0;
+		match = 0;  // 不显示隐藏文件
 	}
 	else if ((dir_item->DIR_Attr & DIRITEM_ATTR_VOLUME_ID) && !(locate_type & XFILE_LOCATE_VOL)) {
+		match = 0;  // 不显示卷标
+	}
+	else if ((memcmp(DOT_FILE, dir_item->DIR_Name, SFN_LEN) == 0)
+		|| (memcmp(DOT_DOT_FILE, dir_item->DIR_Name, SFN_LEN) == 0)) {
+		if (!(locate_type & XFILE_LOCATE_DOT)) {
+			match = 0;// 不显示dot文件
+		}
+	}
+	else if (!(locate_type & XFILE_LOCATE_NORMAL)) {
 		match = 0;
 	}
-	else if ((memcmp(DOT_FILE, dir_item->DIR_Name, SFN_LEN) == 0 ||
-		memcmp(DOT_DOT_FILE, dir_item->DIR_Name, SFN_LEN) == 0) &&
-		!(locate_type & XFILE_LOCATE_DOT)) {
-		match = 0;
-	}
-
 	return match;
 }
 
@@ -552,7 +563,7 @@ static xfat_err_t open_sub_file(xfat_t* xfat, u32_t dir_cluster, xfile_t* file, 
 	u32_t parent_cluster = dir_cluster;
 	u32_t parent_cluster_offset = 0;
 	u32_t file_start_cluster = 0;
-	if ((path != '\0') && (*path != '\0')) {
+	if ((path != 0) && (*path != '\0')) {
 		// a/b/c/d.txt
 		const char* curr_path = path;
 		diritem_t* diritem = (diritem_t*)0;
@@ -714,6 +725,161 @@ static xfat_err_t move_file_pos(xfile_t* file, u32_t move_bytes) {
 	}
 
 	file->pos += to_move;
+	return FS_ERR_OK;
+}
+
+static xfat_err_t diritem_init_default(diritem_t* dir_item, xdisk_t* disk, u8_t is_dir, const char* name, u32_t cluster) {
+	xfile_time_t timeinfo;
+	xfat_err_t err = xdisk_curr_time(disk, &timeinfo);
+	if (err < 0) {
+		return err;
+	}
+	to_sfn((char*)dir_item->DIR_Name, name);
+	set_diritem_cluster(dir_item, cluster);
+	dir_item->DIR_FileSize = 0;
+	dir_item->DIR_Attr = (u8_t)(is_dir ? DIRITEM_ATTR_DIRECTORY : 0);
+	dir_item->DIR_NTRes = get_sfn_case_cfg(name);
+
+	dir_item->DIR_CrtTime.hour = timeinfo.hour;
+	dir_item->DIR_CrtTime.minute = timeinfo.minute;
+	dir_item->DIR_CrtTime.second_2 = (u16_t)timeinfo.second / 2;
+	dir_item->DIR_CrtTimeTeenth = (u8_t)((timeinfo.second & 1) * 1000);
+
+	dir_item->DIR_CrtDate.year_from_1980 = (u16_t)(timeinfo.year - 1980);
+	dir_item->DIR_CrtDate.month = timeinfo.month;
+	dir_item->DIR_CrtDate.day = timeinfo.day;
+
+	dir_item->DIR_WrtTime = dir_item->DIR_CrtTime;
+	dir_item->DIR_WrtDate = dir_item->DIR_CrtDate;
+	dir_item->DIR_LastAccDate = dir_item->DIR_CrtDate;
+
+	return FS_ERR_OK;
+}
+
+static xfat_err_t create_sub_file(xfat_t* xfat, u8_t is_dir, u32_t parent_cluster,
+	const char* child_name, u32_t* file_cluster) {
+	xdisk_t* disk = xfat_get_disk(xfat);
+	u32_t found_cluster;
+	u32_t found_offset;
+	u32_t next_cluster;
+	u32_t next_offset;
+	u32_t curr_cluster = parent_cluster;
+	u32_t curr_offset = 0;
+
+	diritem_t* target_item = (diritem_t*)0;
+	u32_t free_item_cluster = CLUSTER_INVALID;
+	u32_t free_item_offset = 0;
+	u32_t file_diritem_sector;
+
+	do {
+		diritem_t* diritem = (diritem_t*)0;
+
+		xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_ALL, curr_cluster, curr_offset, &found_cluster,
+			&found_offset, &next_cluster, &next_offset, temp_buffer, &diritem);
+		if (err < 0) {
+			return err;
+		}
+
+		if (diritem == (diritem_t*)0) {
+			break;
+		}
+
+		if (diritem->DIR_Name[0] == DIRITEM_NAME_END) {
+			target_item = diritem;
+			break;
+		}
+		else if (diritem->DIR_Name[0] == DIRITEM_NAME_FREE) {
+			// 空闲项, 还要继续检查，看是否有同名项
+			// 记录空闲项的位置
+			if (!is_cluster_valid(free_item_cluster)) {
+				free_item_cluster = curr_cluster;
+				free_item_offset = curr_offset;
+			}
+		}
+		else if (is_filename_match((const char*)diritem->DIR_Name, child_name)) {
+			int item_is_dir = diritem->DIR_Attr & DIRITEM_ATTR_DIRECTORY;
+			if ((is_dir && item_is_dir) || (!is_dir && !item_is_dir)) {
+				*file_cluster = get_diritem_cluster(diritem);
+				return FS_ERR_EXISTED;
+			}
+			else {
+				return FS_ERR_NAME_USED;
+			}
+		}
+
+		curr_cluster = next_cluster;
+		curr_offset = next_offset;
+	} while (1);
+
+	if ((target_item == (diritem_t*)0) && !is_cluster_valid(free_item_cluster)) {
+		u32_t parent_diritem_cluster;
+		u32_t cluster_count;
+		xfat_err_t err = allocate_free_cluster(xfat, found_cluster, 1, &parent_diritem_cluster, &cluster_count, 1, 0);
+		if (err < 0) {
+			return err;
+		}
+
+		if (cluster_count < 1) {
+			return FS_ERR_DISK_FULL;
+		}
+
+		// 读取新建簇中的第一个扇区，获取target_item
+		file_diritem_sector = cluster_first_sector(xfat, parent_diritem_cluster);
+		err = xdisk_read_sector(disk, temp_buffer, file_diritem_sector, 1);
+		if (err < 0) {
+			return err;
+		}
+
+		target_item = (diritem_t*)temp_buffer;
+	}
+	else {
+		u32_t diritem_offset;
+		if (is_cluster_valid(free_item_cluster)) {
+			file_diritem_sector = cluster_first_sector(xfat, free_item_cluster) + to_sector(disk, free_item_offset);
+			diritem_offset = free_item_offset;
+		}
+		else {
+			file_diritem_sector = cluster_first_sector(xfat, found_cluster) + to_sector(disk, found_offset);
+			diritem_offset = found_offset;
+		}
+
+		xfat_err_t err = xdisk_read_sector(disk, temp_buffer, file_diritem_sector, 1);
+		if (err < 0) {
+			return err;
+		}
+
+		target_item = (diritem_t*)(temp_buffer + to_sector_offset(disk, diritem_offset));
+	}
+
+	xfat_err_t err = diritem_init_default(target_item, disk, is_dir, child_name, FILE_DEFAULT_CLUSTER);
+	if (err < 0) {
+		return err;
+	}
+
+	err = xdisk_write_sector(disk, temp_buffer, file_diritem_sector, 1);
+	if (err < 0) {
+		return err;
+	}
+
+	*file_cluster = FILE_DEFAULT_CLUSTER;
+	return FS_ERR_OK;
+}
+
+xfat_err_t xfile_mkfile(xfat_t* xfat, const char* path) {
+	u32_t parent_cluster = xfat->root_cluster;
+
+	while (!is_path_end(path)) {
+		xfat_err_t err;
+		u32_t file_cluster = FILE_DEFAULT_CLUSTER;
+		const char* next_path = get_child_path(path);
+		if (is_path_end(next_path)) {
+			err = create_sub_file(xfat, 0, parent_cluster, path, &file_cluster);
+			return err;
+		}
+
+		path = next_path;
+	}
+
 	return FS_ERR_OK;
 }
 

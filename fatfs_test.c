@@ -608,7 +608,7 @@ xfat_err_t fs_modify_file_test(void) {
 
 	sprintf(curr_path, "%s%s", dir_path, filename1);
 	err = xfile_open(&xfat, &file, curr_path);
-	char* new_name;
+	const char* new_name;
 	if (err < 0) {
 		sprintf(curr_path, "%s%s", dir_path, filename2);
 		new_name = filename1;
@@ -692,7 +692,7 @@ int file_write_test(const char* path, u32_t elem_size, u32_t elem_count, u32_t w
 		return err;
 	}
 
-	for (int i = 0; i < write_count; i++) {
+	for (u32_t i = 0; i < write_count; i++) {
 		err = xfile_write(write_buffer, elem_size, elem_count, &file);
 		if (err < 0) {
 			printf("Write failed!\n");
@@ -805,6 +805,42 @@ int fs_write_test(void) {
 	return FS_ERR_OK;
 }
 
+xfat_err_t fs_create_test(void) {
+	xfat_err_t err = FS_ERR_OK;
+
+	const char* dir_path = "";
+	char path[256];
+	printf("create test\n");
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 50; j++) {
+			sprintf(path, "%s/b%d.txt", dir_path, j);
+			printf("no %d: create file %s\n", i, path);
+
+			err = xfile_mkfile(&xfat, path);
+			if (err < 0) {
+				if (err == FS_ERR_EXISTED) {
+					printf("file exist %s, continue.\n", path);
+				}
+				else {
+					printf("create file failed %s!\n", path);
+					return err;
+				}
+			}
+
+			err = file_write_test(path, 1024, 1, 1);
+			if (err < 0) {
+				printf("write file failed! %s\n", path);
+				return err;
+			}
+
+			printf("create %s ok\n", path);
+		}
+	}
+
+	printf("ceate test ok\n");
+	return err;
+}
+
 int main(void) {
 	for (int i = 0; i < sizeof(write_buffer) / sizeof(u32_t); i++) {
 		write_buffer[i] = i;
@@ -874,7 +910,12 @@ int main(void) {
 	//	return err;
 	//}
 
-	err = fs_write_test();
+	//err = fs_write_test();
+	//if (err) {
+	//	return err;
+	//}
+
+	err = fs_create_test();
 	if (err) {
 		return err;
 	}

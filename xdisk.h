@@ -35,10 +35,12 @@ typedef struct _mbr_t {
 #pragma pack()
 
 struct _xdisk_t;
+struct _xfile_time_t;
 
 typedef struct _xdisk_driver_t {
 	xfat_err_t(*open)(struct _xdisk_t* disk, void* init_data);
 	xfat_err_t(*close)(struct _xdisk_t* disk);
+	xfat_err_t(*curr_time)(struct _xdisk_t* disk, struct _xfile_time_t* timeinfo);
 	xfat_err_t(*read_sector)(struct _xdisk_t* disk, u8_t* buffer, u32_t start_sector, u32_t count);
 	xfat_err_t(*write_sector)(struct _xdisk_t* disk, u8_t* buffer, u32_t start_sector, u32_t count);
 } xdisk_driver_t;
@@ -62,6 +64,7 @@ xfat_err_t xdisk_open(xdisk_t* disk, const char* name, xdisk_driver_t* driver, v
 xfat_err_t xdisk_close(xdisk_t* disk);
 xfat_err_t xdisk_get_part_count(xdisk_t* disk, u32_t* count);
 xfat_err_t xdisk_get_part(xdisk_t* disk, xdisk_part_t* xdisk_part, int part_no);
+xfat_err_t xdisk_curr_time(struct _xdisk_t* disk, struct _xfile_time_t* timeinfo);
 xfat_err_t xdisk_read_sector(xdisk_t* disk, u8_t* buffer, u32_t start_sector, u32_t count);
 xfat_err_t xdisk_write_sector(xdisk_t* disk, u8_t* buffer, u32_t start_sector, u32_t count);
 

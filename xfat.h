@@ -51,7 +51,7 @@ typedef struct _dbr_t {
 } dbr_t;
 
 #define CLUSTER_INVALID                 0x0FFFFFFF          // 无效的簇号
-
+#define FILE_DEFAULT_CLUSTER 0
 #define DIRITEM_NAME_FREE               0xE5                // 目录项空闲名标记
 #define DIRITEM_NAME_END                0x00                // 目录项结束名标记
 
@@ -206,6 +206,7 @@ xfat_err_t xdir_next_file(xfile_t* file, xfileinfo_t* info);
 xfat_err_t xfile_error(xfile_t* file);
 void xfile_clear_err(xfile_t* file);
 
+xfat_err_t xfile_mkfile(xfat_t* xfat, const char* path);
 xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file);
 xfile_size_t xfile_write(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file);
 
