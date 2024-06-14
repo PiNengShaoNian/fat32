@@ -126,7 +126,7 @@ xfat_err_t get_next_diritem(xfat_t* xfat, u8_t type, u32_t start_cluster,
 		}
 
 		u32_t sector_offset = to_sector_offset(xfat_get_disk(xfat), start_offset);
-		if (start_offset == 0) {
+		if (sector_offset == 0) {
 			u32_t curr_sector = to_phy_sector(xfat, start_cluster, start_offset);
 			err = xdisk_read_sector(xfat_get_disk(xfat), temp_buffer, curr_sector, 1);
 			if (err < 0) {
@@ -439,7 +439,7 @@ static void sfn_to_myname(char* dest_name, const diritem_t* diritem) {
 
 static void copy_date_time(xfile_time_t* dest, const diritem_date_t* date, const diritem_time_t* time, const u8_t mil_sec) {
 	if (date) {
-		dest->year = (u8_t)date->year_from_1980 + 1980;
+		dest->year = date->year_from_1980 + (u16_t)1980;
 		dest->month = (u8_t)date->month;
 		dest->day = (u8_t)date->day;
 	}
@@ -604,8 +604,8 @@ static xfat_err_t open_sub_file(xfat_t* xfat, u32_t dir_cluster, xfile_t* file, 
 		file->size = 0;
 		file->type = FAT_DIR;
 		file->attr = 0;
-		file->start_cluster = dir_cluster;
-		file->curr_cluster = dir_cluster;
+		file->start_cluster = parent_cluster;
+		file->curr_cluster = parent_cluster;
 		file->dir_cluster = CLUSTER_INVALID;
 		file->dir_cluster_offset = 0;
 	}
@@ -631,6 +631,10 @@ xfat_err_t xfile_open(xfat_t* xfat, xfile_t* file, const char* path) {
 }
 
 xfat_err_t xfile_open_sub(xfile_t* dir, const char* sub_path, xfile_t* sub_file) {
+	if (dir->type != FAT_DIR) {
+		return FS_ERR_PARAM;
+	}
+
 	sub_path = skip_first_path_sep(sub_path);
 	if (memcmp(sub_path, ".", 1) == 0) {
 		return FS_ERR_PARAM;
@@ -658,10 +662,10 @@ xfat_err_t xdir_first_file(xfile_t* file, xfileinfo_t* info) {
 	if (err < 0) {
 		return err;
 	}
-	file->pos += moved_bytes;
 	if (diritem == (diritem_t*)0) {
-		return FS_ERR_OK;
+		return FS_ERR_EOF;
 	}
+	file->pos += moved_bytes;
 	copy_file_info(info, diritem);
 	return err;
 }
@@ -675,19 +679,17 @@ xfat_err_t xdir_next_file(xfile_t* file, xfileinfo_t* info) {
 	u32_t moved_bytes = 0;
 	diritem_t* diritem = (diritem_t*)0;
 	xfat_err_t err = locate_file_dir_item(file->xfat, XFILE_LOCATE_NORMAL, &file->curr_cluster, &cluster_offset, "", &moved_bytes, &diritem);
-	if (err < 0) {
+	if (err != FS_ERR_OK) {
 		return err;
 	}
 	file->pos += moved_bytes;
 	if (cluster_offset + sizeof(diritem_t) >= file->xfat->cluster_byte_size) {
 		err = get_next_cluster(file->xfat, file->curr_cluster, &file->curr_cluster);
-		if (err < 0) {
+		if (err != FS_ERR_OK) {
 			return err;
 		}
 	}
-	if (diritem == (diritem_t*)0) {
-		return FS_ERR_EOF;
-	}
+
 	copy_file_info(info, diritem);
 	return err;
 }
