@@ -211,6 +211,7 @@ xfat_err_t xfile_mkdir(xfat_t* xfat, const char* path);
 xfat_err_t xfile_mkfile(xfat_t* xfat, const char* path);
 xfat_err_t xfile_rmfile(xfat_t* xfat, const char* path);
 xfat_err_t xfile_rmdir(xfat_t* xfat, const char* path);
+xfat_err_t xfile_rmdir_tree(xfat_t* xfat, const char* path);
 xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file);
 xfile_size_t xfile_write(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file);
 

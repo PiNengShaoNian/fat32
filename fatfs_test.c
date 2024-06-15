@@ -893,6 +893,54 @@ xfat_err_t fs_create_test(void) {
 	return err;
 }
 
+xfat_err_t fs_rmdir_tree_test(void) {
+	xfat_err_t err = FS_ERR_OK;
+	const char* dir_path = "/rmtree/c0/c1/c2/c3/c4/c5/c6/c7/c8/c9";
+	xfile_t file;
+
+	printf("fs_rmdir_tree_test test\n");
+
+	printf("create dir %s\n", dir_path);
+	err = xfile_mkdir(&xfat, dir_path);
+	if (err && (err != FS_ERR_EXISTED)) {
+		return err;
+	}
+
+	err = xfile_open(&xfat, &file, "/rmtree");
+	if (err < 0) {
+		return err;
+	}
+	err = list_sub_files(&file, 0);
+	if (err < 0) {
+		return err;
+	}
+	err = xfile_close(&file);
+	if (err < 0) {
+		return err;
+	}
+
+	err = xfile_rmdir_tree(&xfat, "/rmtree/c0");
+	if (err < 0) {
+		return err;
+	}
+
+	err = xfile_open(&xfat, &file, "/rmtree");
+	if (err < 0) {
+		return err;
+	}
+	err = list_sub_files(&file, 0);
+	if (err < 0) {
+		return err;
+	}
+	err = xfile_close(&file);
+	if (err < 0) {
+		return err;
+	}
+
+	printf("fs_rmdir_tree_test ok\n");
+	return FS_ERR_OK;
+}
+
 int main(void) {
 	for (int i = 0; i < sizeof(write_buffer) / sizeof(u32_t); i++) {
 		write_buffer[i] = i;
@@ -967,7 +1015,12 @@ int main(void) {
 	//	return err;
 	//}
 
-	err = fs_create_test();
+	//err = fs_create_test();
+	//if (err) {
+	//	return err;
+	//}
+
+	err = fs_rmdir_tree_test();
 	if (err) {
 		return err;
 	}
