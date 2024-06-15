@@ -808,10 +808,23 @@ int fs_write_test(void) {
 xfat_err_t fs_create_test(void) {
 	xfat_err_t err = FS_ERR_OK;
 
-	const char* dir_path = "";
+	const char* dir_path = "/create/c0/c1/c2/c3/c4/c5/c6/c7/c8/c9";
 	char path[256];
 	printf("create test\n");
 	for (int i = 0; i < 3; i++) {
+		printf("no %d: create dir %s\n", i, dir_path);
+		err = xfile_mkdir(&xfat, dir_path);
+
+		if (err < 0) {
+			if (err == FS_ERR_EXISTED) {
+				printf("dir exist %s, continue.\n", dir_path);
+			}
+			else {
+				printf("create dir failed %s!\n", dir_path);
+				return err;
+			}
+		}
+
 		for (int j = 0; j < 50; j++) {
 			sprintf(path, "%s/b%d.txt", dir_path, j);
 			printf("no %d: create file %s\n", i, path);

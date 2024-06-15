@@ -813,6 +813,22 @@ static xfat_err_t create_sub_file(xfat_t* xfat, u8_t is_dir, u32_t parent_cluste
 		curr_offset = next_offset;
 	} while (1);
 
+	u32_t file_first_cluster = 0;
+	if (is_dir && strncmp(".", child_name, 1) && strncmp("..", child_name, 2)) {
+		u32_t cluster_count;
+		xfat_err_t err = allocate_free_cluster(xfat, CLUSTER_INVALID, 1, &file_first_cluster, &cluster_count, 1, 0);
+		if (err < 0) {
+			return err;
+		}
+		if (cluster_count < 1) {
+			return FS_ERR_DISK_FULL;
+		}
+
+	}
+	else {
+		file_first_cluster = *file_cluster;
+	}
+
 	if ((target_item == (diritem_t*)0) && !is_cluster_valid(free_item_cluster)) {
 		u32_t parent_diritem_cluster;
 		u32_t cluster_count;
@@ -853,7 +869,7 @@ static xfat_err_t create_sub_file(xfat_t* xfat, u8_t is_dir, u32_t parent_cluste
 		target_item = (diritem_t*)(temp_buffer + to_sector_offset(disk, diritem_offset));
 	}
 
-	xfat_err_t err = diritem_init_default(target_item, disk, is_dir, child_name, FILE_DEFAULT_CLUSTER);
+	xfat_err_t err = diritem_init_default(target_item, disk, is_dir, child_name, file_first_cluster);
 	if (err < 0) {
 		return err;
 	}
@@ -863,7 +879,50 @@ static xfat_err_t create_sub_file(xfat_t* xfat, u8_t is_dir, u32_t parent_cluste
 		return err;
 	}
 
-	*file_cluster = FILE_DEFAULT_CLUSTER;
+	*file_cluster = file_first_cluster;
+	return FS_ERR_OK;
+}
+
+static xfat_err_t create_empty_dir(xfat_t* xfat, u8_t failed_on_exist, u32_t parent_cluster,
+	const char* name, u32_t* new_cluster) {
+	xfat_err_t err = create_sub_file(xfat, 1, parent_cluster, name, new_cluster);
+	if (err == FS_ERR_EXISTED && !failed_on_exist) {
+		return FS_ERR_OK;
+	}
+	else if (err < 0) {
+		return err;
+	}
+
+	u32_t dot_cluster;
+	u32_t dot_dot_cluster;
+	err = create_sub_file(xfat, 1, *new_cluster, ".", &dot_cluster);
+	if (err < 0) {
+		return err;
+	}
+
+	dot_dot_cluster = parent_cluster;
+	err = create_sub_file(xfat, 1, *new_cluster, "..", &dot_dot_cluster);
+	if (err < 0) {
+		return err;
+	}
+
+	return FS_ERR_OK;
+}
+
+xfat_err_t xfile_mkdir(xfat_t* xfat, const char* path) {
+	u32_t parent_cluster = xfat->root_cluster;
+	while (!is_path_end(path)) {
+		u32_t new_dir_cluster = FILE_DEFAULT_CLUSTER;
+		const char* next_path = get_child_path(path);
+		u8_t failed_on_exist = is_path_end(next_path);
+		xfat_err_t err = create_empty_dir(xfat, failed_on_exist, parent_cluster, path, &new_dir_cluster);
+		if (err < 0) {
+			return err;
+		}
+		path = get_child_path(path);
+		parent_cluster = new_dir_cluster;
+	}
+
 	return FS_ERR_OK;
 }
 
@@ -877,6 +936,14 @@ xfat_err_t xfile_mkfile(xfat_t* xfat, const char* path) {
 		if (is_path_end(next_path)) {
 			err = create_sub_file(xfat, 0, parent_cluster, path, &file_cluster);
 			return err;
+		}
+		else {
+			err = create_empty_dir(xfat, 0, parent_cluster, path, &file_cluster);
+			if (err < 0) {
+				return err;
+			}
+
+			parent_cluster = file_cluster;
 		}
 
 		path = next_path;
