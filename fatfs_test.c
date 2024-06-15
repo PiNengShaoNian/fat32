@@ -850,6 +850,33 @@ xfat_err_t fs_create_test(void) {
 		}
 	}
 
+	printf("begin remove file\n");
+	for (int j = 0; j < 50; j++) {
+		sprintf(path, "%s/b%d.txt", dir_path, j);
+		printf("rm file %s\n", path);
+
+		xfat_err_t err = xfile_rmfile(&xfat, path);
+		if (err < 0) {
+			printf("rm file failed %s\n", path);
+		}
+	}
+
+	xfile_t file;
+	err = xfile_open(&xfat, &file, dir_path);
+
+	if (err < 0) {
+		return err;
+	}
+
+	err = list_sub_files(&file, 0);
+	if (err < 0) {
+		return err;
+	}
+	err = xfile_close(&file);
+	if (err < 0) {
+		return err;
+	}
+
 	printf("ceate test ok\n");
 	return err;
 }
