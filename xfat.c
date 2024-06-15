@@ -1039,6 +1039,111 @@ xfat_err_t xfile_rmfile(xfat_t* xfat, const char* path) {
 	return FS_ERR_OK;
 }
 
+static xfat_err_t dir_has_child(xfat_t* xfat, u32_t dir_cluster, int* has_child) {
+	diritem_t* diritem = (diritem_t*)0;
+	u32_t curr_cluster, curr_offset;
+	u32_t next_cluster, next_offset;
+	u32_t found_cluster, found_offset;
+	const char* curr_path;
+
+	curr_cluster = dir_cluster;
+	curr_offset = 0;
+	*has_child = 0;
+	do {
+		xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_USED, curr_cluster, curr_offset,
+			&found_cluster, &found_offset, &next_cluster, &next_offset, temp_buffer, &diritem);
+		if (err < 0) {
+			return err;
+		}
+
+		if (diritem == (diritem_t*)0) {    // 已经搜索到目录结束
+			return FS_ERR_OK;
+		}
+
+		if (is_locate_type_match(diritem, XFILE_LOCATE_NORMAL)) {
+			*has_child = 1;
+			return FS_ERR_OK;
+		}
+
+		curr_cluster = next_cluster;
+		curr_offset = next_offset;
+	} while (1);
+
+	return FS_ERR_OK;
+}
+
+xfat_err_t xfile_rmdir(xfat_t* xfat, const char* path) {
+	diritem_t* diritem = (diritem_t*)0;
+	u32_t curr_cluster, curr_offset;
+	u32_t next_cluster, next_offset;
+	u32_t found_cluster, found_offset;
+	const char* curr_path;
+
+	curr_cluster = xfat->root_cluster;
+	curr_offset = 0;
+	for (curr_path = path; curr_path != '\0'; curr_path = get_child_path(curr_path)) {
+		do {
+			xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_USED, curr_cluster, curr_offset,
+				&found_cluster, &found_offset, &next_cluster, &next_offset, temp_buffer, &diritem);
+			if (err < 0) {
+				return err;
+			}
+
+			if (diritem == (diritem_t*)0) {    // 已经搜索到目录结束
+				return FS_ERR_NONE;
+			}
+
+			if (is_filename_match((const char*)diritem->DIR_Name, curr_path)) {
+				// 找到，比较下一级子目录
+				if (get_child_path(curr_path)) {
+					curr_cluster = get_diritem_cluster(diritem);
+					curr_offset = 0;
+				}
+				break;
+			}
+
+			curr_cluster = next_cluster;
+			curr_offset = next_offset;
+		} while (1);
+	}
+
+	if (diritem && !curr_path) {
+		if (get_file_type(diritem) != FAT_DIR) {
+			return FS_ERR_PARAM;
+		}
+
+		int has_child;
+		xfat_err_t err = dir_has_child(xfat, get_diritem_cluster(diritem), &has_child);
+		if (err < 0) {
+			return err;
+		}
+
+		if (has_child) {
+			return FS_ERR_NOT_EMPTY;
+		}
+
+		u32_t dir_sector = to_phy_sector(xfat, found_cluster, found_offset);
+		err = xdisk_read_sector(xfat_get_disk(xfat), temp_buffer, dir_sector, 1);
+		if (err < 0) {
+			return err;
+		}
+		diritem = (diritem_t*)(temp_buffer + to_sector_offset(xfat_get_disk(xfat), found_offset));
+		diritem->DIR_Name[0] = DIRITEM_NAME_FREE;
+
+		err = xdisk_write_sector(xfat_get_disk(xfat), temp_buffer, dir_sector, 1);
+		if (err < 0) {
+			return err;
+		}
+
+		err = destory_cluster_chain(xfat, get_diritem_cluster(diritem));
+		if (err < 0) {
+			return err;
+		}
+	}
+
+	return FS_ERR_OK;
+}
+
 xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file) {
 	xfile_size_t bytes_to_read = count * elem_size;
 	u8_t* read_buffer = (u8_t*)buffer;

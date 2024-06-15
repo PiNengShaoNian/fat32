@@ -850,6 +850,12 @@ xfat_err_t fs_create_test(void) {
 		}
 	}
 
+	err = xfile_rmdir(&xfat, dir_path);
+	if (err == FS_ERR_OK) {
+		printf("rm dir failed!\n");
+		return -1;
+	}
+
 	printf("begin remove file\n");
 	for (int j = 0; j < 50; j++) {
 		sprintf(path, "%s/b%d.txt", dir_path, j);
@@ -875,6 +881,12 @@ xfat_err_t fs_create_test(void) {
 	err = xfile_close(&file);
 	if (err < 0) {
 		return err;
+	}
+
+	err = xfile_rmdir(&xfat, dir_path);
+	if (err != FS_ERR_OK) {
+		printf("rm dir failed!\n");
+		return -1;
 	}
 
 	printf("ceate test ok\n");
