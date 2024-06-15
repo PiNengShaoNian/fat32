@@ -941,6 +941,67 @@ xfat_err_t fs_rmdir_tree_test(void) {
 	return FS_ERR_OK;
 }
 
+xfat_err_t fs_resize_test(void) {
+	xfile_t file;
+	xfat_err_t err;
+	const char* path = "/resize/file.txt";
+	err = xfile_mkfile(&xfat, path);
+	if (err < 0 && err != FS_ERR_EXISTED) {
+		printf("create file failed!\n");
+		return err;
+	}
+
+	err = xfile_open(&xfat, &file, path);
+	if (err < 0) {
+		printf("open file failed!\n");
+		return err;
+	}
+
+	err = xfile_resize(&file, 32);
+	if (err < 0) {
+		printf("resize file failed!\n");
+		return err;
+	}
+
+	err = xfile_seek(&file, 32, SEEK_SET);
+	if (err < 0) {
+		printf("seek file failed!\n");
+		return err;
+	}
+
+	if (xfile_write(write_buffer, sizeof(write_buffer), 1, &file) == 0) {
+		printf("write file failed!\n");
+		return -1;
+	}
+
+	u32_t offset = 0x2000;
+	err = xfile_resize(&file, offset);
+	if (err < 0) {
+		printf("resize file failed!\n");
+		return err;
+	}
+
+	err = xfile_seek(&file, offset, SEEK_SET);
+	if (err < 0) {
+		printf("seek file failed!\n");
+		return err;
+	}
+	if (xfile_write(write_buffer, sizeof(write_buffer), 1, &file) == 0) {
+		printf("write file failed!\n");
+		return -1;
+	}
+
+	xfile_size_t file_size;
+	xfile_size(&file, &file_size);
+	if (file_size != (offset + sizeof(write_buffer))) {
+		printf("resize test failed!\n");
+		return err;
+	}
+
+	printf("resize test ok\n");
+	return FS_ERR_OK;
+}
+
 int main(void) {
 	for (int i = 0; i < sizeof(write_buffer) / sizeof(u32_t); i++) {
 		write_buffer[i] = i;
@@ -1020,7 +1081,12 @@ int main(void) {
 	//	return err;
 	//}
 
-	err = fs_rmdir_tree_test();
+	//err = fs_rmdir_tree_test();
+	//if (err) {
+	//	return err;
+	//}
+
+	err = fs_resize_test();
 	if (err) {
 		return err;
 	}

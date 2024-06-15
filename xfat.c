@@ -119,7 +119,7 @@ static xfat_err_t destory_cluster_chain(xfat_t* xfat, u32_t cluster) {
 	}
 
 	if (write_back) {
-		for (int i = 0; i < xfat->fat_tbl_nr; i++) {
+		for (u32_t i = 0; i < xfat->fat_tbl_nr; i++) {
 			u32_t start_sector = xfat->fat_start_sector + xfat->fat_tbl_sectors * i;
 			xfat_err_t err = xdisk_write_sector(disk, (u8_t*)xfat->fat_buffer, start_sector, xfat->fat_tbl_sectors);
 			if (err < 0) {
@@ -127,6 +127,7 @@ static xfat_err_t destory_cluster_chain(xfat_t* xfat, u32_t cluster) {
 			}
 		}
 	}
+	return FS_ERR_OK;
 }
 
 xfat_err_t move_cluster_pos(xfat_t* xfat, u32_t curr_cluster, u32_t curr_offset, u32_t move_bytes, u32_t* next_cluster, u32_t* next_offset) {
@@ -1042,7 +1043,6 @@ static xfat_err_t dir_has_child(xfat_t* xfat, u32_t dir_cluster, int* has_child)
 	u32_t curr_cluster, curr_offset;
 	u32_t next_cluster, next_offset;
 	u32_t found_cluster, found_offset;
-	const char* curr_path;
 
 	curr_cluster = dir_cluster;
 	curr_offset = 0;
@@ -1150,7 +1150,6 @@ static xfat_err_t rmdir_all_children(xfat_t* xfat, u32_t parent_cluster) {
 	u32_t next_offset;
 	u32_t found_cluster;
 	u32_t found_offset;
-	const char* curr_path;
 
 	do {
 		xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_USED, curr_cluster, curr_offset,
@@ -1537,7 +1536,7 @@ xfat_err_t xfile_seek(xfile_t* file, xfile_ssize_t offset, xfile_origin_t origin
 		return FS_ERR_PARAM;
 	}
 
-	if (final_pos < 0 || final_pos >= file->size) {
+	if (final_pos < 0 || final_pos > file->size) {
 		return FS_ERR_PARAM;
 	}
 
@@ -1584,6 +1583,61 @@ xfat_err_t xfile_size(xfile_t* file, xfile_size_t* size) {
 	*size = file->size;
 
 	return FS_ERR_OK;
+}
+
+static xfat_err_t truncate_file(xfile_t* file, xfile_size_t size) {
+	xfat_err_t err;
+	u32_t curr_cluster = file->start_cluster;
+	u32_t pos = 0;
+
+	while (pos < size) {
+		u32_t next_cluster;
+		err = get_next_cluster(file->xfat, curr_cluster, &next_cluster);
+		if (err < 0) {
+			return err;
+		}
+		pos += file->xfat->cluster_byte_size;
+		curr_cluster = next_cluster;
+	}
+
+	err = destory_cluster_chain(file->xfat, curr_cluster);
+	if (err < 0) {
+		return err;
+	}
+	if (size == 0) {
+		file->start_cluster = 0;
+	}
+
+	return update_file_size(file, size);
+}
+
+xfat_err_t xfile_resize(xfile_t* file, xfile_size_t size) {
+	if (file->type != FAT_FILE) {
+		return FS_ERR_PARAM;
+	}
+
+	if (size == file->size) {
+		return FS_ERR_OK;
+	}
+	else if (size > file->size) {
+		xfat_err_t err = expand_file(file, size);
+		if (err < 0) {
+			return err;
+		}
+		return FS_ERR_OK;
+	}
+	else {
+		xfat_err_t err = truncate_file(file, size);
+		if (err < 0) {
+			return err;
+		}
+
+		if (file->pos >= size) {
+			file->pos = 0;
+			file->curr_cluster = file->start_cluster;
+		}
+		return FS_ERR_OK;
+	}
 }
 
 xfat_err_t xfile_rename(xfat_t* xfat, const char* path, const char* new_name) {
