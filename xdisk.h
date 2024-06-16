@@ -56,6 +56,7 @@ typedef struct _xdisk_t {
 typedef struct _xdisk_part_t {
 	u32_t start_sector;
 	u32_t total_sector;
+	u32_t relative_sector;
 	xfs_type_t type;
 	xdisk_t* disk;
 } xdisk_part_t;

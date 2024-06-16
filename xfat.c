@@ -205,16 +205,60 @@ static u8_t dbr_data[512] = {
 	0x72, 0x74, 0x0D, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAC, 0xCB, 0xD8, 0x00, 0x00, 0x55, 0xAA
 };
 
-static xfat_err_t create_dbr(dbr_t* dbr, xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
-	xdisk_t* disk = disk_part->disk;
-
-	memcpy(dbr, dbr_data, disk->sector_size);
-	strncpy((char*)dbr->bpb.BS_OEMName, "XFAT SYS", 8);
-	xfat_err_t err = xdisk_write_sector(disk, (u8_t*)dbr, disk_part->start_sector, 1);
+static xfat_err_t create_vol_id_label(xdisk_t* disk, dbr_t* dbr) {
+	xfile_time_t time;
+	xfat_err_t err = xdisk_curr_time(disk, &time);
 	if (err < 0) {
 		return err;
 	}
 
+	u32_t sec = time.hour * 3600 + time.minute * 60 + time.second;
+	dbr->fat32.BS_VolID = sec;
+	memcpy(dbr->fat32.BS_VolLab, "NO NAME    ", 11);
+	return FS_ERR_OK;
+}
+
+static xfat_err_t create_dbr(dbr_t* dbr, xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
+	xdisk_t* disk = disk_part->disk;
+
+	memcpy(dbr, dbr_data, disk->sector_size);           // 拷贝模板数据，用于测试修改
+	//memset(dbr, 0, disk->sector_size);
+	dbr->bpb.BS_jmpBoot[0] = 0xEB;          // 这几个跳转代码是必须的
+	dbr->bpb.BS_jmpBoot[1] = 0x58;          // 不加win会识别为未格式化
+	dbr->bpb.BS_jmpBoot[2] = 0x00;
+	strncpy((char*)dbr->bpb.BS_OEMName, "XFAT SYS", 8);
+	dbr->bpb.BPB_BytsPerSec = disk->sector_size;
+	dbr->bpb.BPB_RootEntCnt = 0;            // FAT32未用
+	dbr->bpb.BPB_TotSec16 = 0;              // FAT32未用
+	dbr->bpb.BPB_Media = 0xF8;              // 固定值
+	dbr->bpb.BPB_FATSz16 = 0;               // FAT32未用
+	dbr->bpb.BPB_SecPerTrk = 0xFFFF;        // 不支持硬盘结构
+	dbr->bpb.BPB_NumHeads = 0xFFFF;         // 不支持硬盘结构
+	dbr->bpb.BPB_HiddSec = disk_part->relative_sector;    // 是否正确?
+	dbr->bpb.BPB_TotSec32 = disk_part->total_sector;
+
+	dbr->fat32.BPB_ExtFlags = 0;            // 固定值，实时镜像所有FAT表
+	dbr->fat32.BPB_FSVer = 0;               // 版本号，0
+	dbr->fat32.BPB_RootClus = 2;            // 固定为2，如果为坏簇怎么办？
+	memset(dbr->fat32.BPB_Reserved, 0, 12);
+	dbr->fat32.BS_DrvNum = 0x80;            // 固定为0
+	dbr->fat32.BS_Reserved1 = 0;
+	dbr->fat32.BS_BootSig = 0x29;           // 固定0x29
+	xfat_err_t err = create_vol_id_label(disk, dbr);
+	if (err < 0) {
+		return err;
+	}
+	memcpy(dbr->fat32.BS_FileSysType, "FAT32   ", 8);
+
+	((u8_t*)dbr)[510] = 0x55;
+	((u8_t*)dbr)[511] = 0xAA;
+
+	err = xdisk_write_sector(disk, (u8_t*)dbr, disk_part->start_sector, 1);
+	if (err < 0) {
+		return err;
+	}
+
+	// 同时在备份区中写一个备份
 	err = xdisk_write_sector(disk, (u8_t*)dbr, disk_part->start_sector + dbr->fat32.BPB_BkBootSec, 1);
 	if (err < 0) {
 		return err;

@@ -121,6 +121,7 @@ static xfat_err_t disk_get_extend_part(xdisk_t* disk, xdisk_part_t* xdisk_part, 
 			xdisk_part->type = part->system_id;
 			xdisk_part->start_sector = part->relative_sectors + start_sector;
 			xdisk_part->total_sector = part->total_sectors;
+			xdisk_part->relative_sector = part->relative_sectors;
 			xdisk_part->disk = disk;
 			break;
 		}
@@ -171,6 +172,7 @@ xfat_err_t xdisk_get_part(xdisk_t* disk, xdisk_part_t* xdisk_part, int part_no) 
 				xdisk_part->type = mbr_part->system_id;
 				xdisk_part->start_sector = mbr_part->relative_sectors;
 				xdisk_part->total_sector = mbr_part->total_sectors;
+				xdisk_part->relative_sector = mbr_part->relative_sectors;
 				xdisk_part->disk = disk;
 				return FS_ERR_OK;
 			}
