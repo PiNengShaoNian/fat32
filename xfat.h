@@ -117,7 +117,10 @@ typedef union _cluster32_t {
 
 #pragma pack()
 
+#define XFAT_NAME_LEN 16
+
 typedef struct _xfat_t {
+	char name[XFAT_NAME_LEN];
 	u32_t fat_start_sector; // Fat分配表的起始扇区
 	u32_t fat_tbl_nr; // Fat分配表的数量
 	u32_t fat_tbl_sectors; // 每个文件分配表（FAT）占用的扇区数。
@@ -128,6 +131,8 @@ typedef struct _xfat_t {
 
 	u8_t* fat_buffer;
 	xdisk_part_t* disk_part;
+
+	struct _xfat_t* next;
 } xfat_t;
 
 typedef enum _xfile_type_t {

@@ -18,6 +18,82 @@ extern u8_t temp_buffer[512];
 #define to_cluster(xfat, pos) ((pos) / (xfat)->cluster_byte_size)
 #define to_cluster_count(xfat, size) ((size) ? (to_cluster(xfat, size) + 1) : 0)
 
+static xfat_t* xfat_list;
+
+void xfat_list_init(void) {
+	xfat_list = (xfat_t*)0;
+}
+
+void xfat_list_add(xfat_t* xfat) {
+	if (xfat_list == (xfat_t*)0) {
+		xfat_list = xfat;
+		xfat->next = (xfat_t*)0;
+	}
+	else {
+		xfat->next = xfat_list;
+		xfat_list = xfat;
+	}
+}
+
+void xfat_list_remove(xfat_t* xfat) {
+	xfat_t* pre = (xfat_t*)0;
+	xfat_t* curr = xfat_list;
+
+	while (curr != xfat && curr != (xfat_t*)0) {
+		pre = curr;
+		curr = curr->next;
+	}
+
+	if (curr != (xfat_t*)0 && curr == xfat) {
+		if (curr == xfat_list) {
+			xfat_list = curr->next;
+		}
+		else {
+			pre->next = curr->next;
+		}
+
+		curr->next = (xfat_t*)0;
+	}
+}
+
+int is_mount_name_match(xfat_t* xfat, const char* name) {
+	const char* s = xfat->name;
+	const char* d = name;
+
+	while (is_path_sep(*d)) {
+		d++;
+	}
+
+	while ((*s != '\0') && (*d != '\0')) {
+		if (is_path_sep(*d)) {
+			return 0;
+		}
+
+		if (*s++ != *d++) {
+			return 0;
+		}
+	}
+
+	return (*s == '\0') && (*d == '\0' || is_path_sep(*d));
+}
+
+xfat_t* xfat_find_by_name(const char* name) {
+	xfat_t* curr = xfat_list;
+	while (curr != (xfat_t*)0) {
+		if (is_mount_name_match(curr, name)) {
+			return curr;
+		}
+		curr = curr->next;
+	}
+
+	return (xfat_t*)0;
+}
+
+xfat_err_t xfat_init(void) {
+	xfat_list_init();
+	return FS_ERR_OK;
+}
+
 static xfat_err_t parse_fat_header(xfat_t* xfat, dbr_t* dbr) {
 	xdisk_part_t* xdisk_part = xfat->disk_part;
 
