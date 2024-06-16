@@ -177,6 +177,10 @@ typedef enum _stime_type_t {
 	XFAT_TIME_MTIME,
 } stime_type_t;
 
+typedef struct _xfat_fmt_ctrl_t {
+	xfs_type_t type;
+} xfat_fmt_ctrl_t;
+
 typedef struct _xfile_time_t {
 	u16_t year;
 	u8_t month;
@@ -202,6 +206,10 @@ xfat_err_t get_next_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t* next_cluste
 xfat_err_t xfat_init(void);
 xfat_err_t xfat_mount(xfat_t* xfat, xdisk_part_t* part, const char* mount_name);
 void xfat_unmount(xfat_t* xfat);
+
+xfat_err_t xfat_fmt_ctrl_init(xfat_fmt_ctrl_t* ctrl);
+xfat_err_t xfat_format(xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl);
+
 xfat_err_t read_cluster(xfat_t* xfat, u8_t* buffer, u32_t cluster, u32_t count);
 
 xfat_err_t xfile_open(xfile_t* file, const char* path);

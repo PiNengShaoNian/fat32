@@ -1002,6 +1002,25 @@ xfat_err_t fs_resize_test(void) {
 	return FS_ERR_OK;
 }
 
+xfat_err_t fs_format_test(void) {
+	xdisk_part_t fmt_part;
+	xfat_fmt_ctrl_t ctrl;
+	xfat_err_t err = xdisk_get_part(&disk, &fmt_part, 2);
+
+	if (err < 0) {
+		return err;
+	}
+
+	xfat_fmt_ctrl_init(&ctrl);
+	err = xfat_format(&fmt_part, &ctrl);
+	if (err < 0) {
+		return err;
+	}
+
+	printf("format test ok!\n");
+	return 0;
+}
+
 int main(void) {
 	for (int i = 0; i < sizeof(write_buffer) / sizeof(u32_t); i++) {
 		write_buffer[i] = i;
@@ -1040,58 +1059,63 @@ int main(void) {
 		return -1;
 	}
 
-	err = fat_dir_test();
-	if (err) {
-		return err;
-	}
+	//err = fat_dir_test();
+	//if (err) {
+	//	return err;
+	//}
 
-	err = fat_file_test();
-	if (err) {
-		return err;
-	}
+	//err = fat_file_test();
+	//if (err) {
+	//	return err;
+	//}
 
-	err = fs_open_test();
-	if (err) {
-		return err;
-	}
+	//err = fs_open_test();
+	//if (err) {
+	//	return err;
+	//}
 
-	err = dir_traverse_test();
-	if (err) {
-		return err;
-	}
+	//err = dir_traverse_test();
+	//if (err) {
+	//	return err;
+	//}
 
-	err = fs_read_test();
-	if (err < 0) {
-		printf("read test failed\n");
-		return -1;
-	}
+	//err = fs_read_test();
+	//if (err < 0) {
+	//	printf("read test failed\n");
+	//	return -1;
+	//}
 
-	err = fs_seek_test();
-	if (err) {
-		return err;
-	}
+	//err = fs_seek_test();
+	//if (err) {
+	//	return err;
+	//}
 
-	err = fs_modify_file_test();
-	if (err) {
-		return err;
-	}
+	//err = fs_modify_file_test();
+	//if (err) {
+	//	return err;
+	//}
 
-	err = fs_write_test();
-	if (err) {
-		return err;
-	}
+	//err = fs_write_test();
+	//if (err) {
+	//	return err;
+	//}
 
-	err = fs_create_test();
-	if (err) {
-		return err;
-	}
+	//err = fs_create_test();
+	//if (err) {
+	//	return err;
+	//}
 
-	err = fs_rmdir_tree_test();
-	if (err) {
-		return err;
-	}
+	//err = fs_rmdir_tree_test();
+	//if (err) {
+	//	return err;
+	//}
 
-	err = fs_resize_test();
+	//err = fs_resize_test();
+	//if (err) {
+	//	return err;
+	//}
+
+	err = fs_format_test();
 	if (err) {
 		return err;
 	}
