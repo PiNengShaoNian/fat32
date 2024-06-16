@@ -177,8 +177,20 @@ typedef enum _stime_type_t {
 	XFAT_TIME_MTIME,
 } stime_type_t;
 
+typedef enum _xcluster_size_t {
+	XFAT_CLUSTER_512B = 512,
+	XFAT_CLUSTER_1K = 1024,
+	XFAT_CLUSTER_2K = (2 * 1024),
+	XFAT_CLUSTER_4K = (4 * 1024),
+	XFAT_CLUSTER_8K = (8 * 1024),
+	XFAT_CLUSTER_16K = (16 * 1024),
+	XFAT_CLUSTER_32K = (32 * 1024),
+	XFAT_CLUSTER_AUTO,
+} xcluster_size_t;
+
 typedef struct _xfat_fmt_ctrl_t {
 	xfs_type_t type;
+	xcluster_size_t cluster_size;
 } xfat_fmt_ctrl_t;
 
 typedef struct _xfile_time_t {

@@ -5,6 +5,9 @@
 
 extern u8_t temp_buffer[512];
 
+#define XFAT_MB(n) ((n) * 1024 * 1024LL)
+#define XFAT_GB(n) ((n) * 1024 * 1024 * 1024LL)
+#define XFAT_MAX(a, b) ((a) > (b) ? (a) : (b))
 #define DOT_FILE ".          "
 #define DOT_DOT_FILE "..         "
 
@@ -167,6 +170,7 @@ void xfat_unmount(xfat_t* xfat) {
 
 xfat_err_t xfat_fmt_ctrl_init(xfat_fmt_ctrl_t* ctrl) {
 	ctrl->type = FS_WIN95_FAT32_0;
+	ctrl->cluster_size = XFAT_CLUSTER_AUTO;
 	return FS_ERR_OK;
 }
 
@@ -218,16 +222,79 @@ static xfat_err_t create_vol_id_label(xdisk_t* disk, dbr_t* dbr) {
 	return FS_ERR_OK;
 }
 
+/**
+ * 计算所需要的fat表扇区数
+ * @param dbr dbr分区参数
+ * @param xdisk_part 分区信息
+ * @param ctrl 格式化控制参数
+ * @return 每个fat表项大小
+ */
+static u32_t cal_fat_tbl_sectors(dbr_t* dbr, xdisk_part_t* xdisk_part, xfat_fmt_ctrl_t* ctrl) {
+	// 保留区扇区数 + fat表数量 * fat表扇区数 + 数据区扇区数 = 总扇区数
+	// fat表扇区数 * 扇区大小 / 4 = 数据区扇区数 / 每簇扇区数  
+	// fat表扇区数=(总扇区数-保留区扇区数)/(FAT表数量+扇区大小*每簇扇区数/4)
+	u32_t sector_size = xdisk_part->disk->sector_size;
+	u32_t fat_dat_sectors = xdisk_part->total_sector - dbr->bpb.BPB_RsvdSecCnt;
+	u32_t fat_sector_count = fat_dat_sectors / (dbr->bpb.BPB_NumFATs + sector_size * dbr->bpb.BPB_SecPerClus / sizeof(cluster32_t));
+
+	return fat_sector_count;
+}
+
+static u32_t get_default_cluster_size(xdisk_part_t* disk_part) {
+	u32_t sector_size = disk_part->disk->sector_size;
+	u64_t part_size = disk_part->total_sector * sector_size;
+	u32_t cluster_size;
+
+	if (part_size <= XFAT_MB(64)) {
+		cluster_size = XFAT_MAX(XFAT_CLUSTER_512B, sector_size);
+	}
+	else if (part_size <= XFAT_MB(128)) {
+		cluster_size = XFAT_MAX(XFAT_CLUSTER_1K, sector_size);
+	}
+	else if (sector_size <= XFAT_MB(256)) {
+		cluster_size = XFAT_MAX(XFAT_CLUSTER_2K, sector_size);
+	}
+	else if (sector_size <= XFAT_GB(8)) {
+		cluster_size = XFAT_MAX(XFAT_CLUSTER_4K, sector_size);
+	}
+	else if (sector_size <= XFAT_GB(16)) {
+		cluster_size = XFAT_MAX(XFAT_CLUSTER_8K, sector_size);
+	}
+	else if (sector_size <= XFAT_GB(32)) {
+		cluster_size = XFAT_MAX(XFAT_CLUSTER_16K, sector_size);
+	}
+	else {
+		cluster_size = XFAT_MAX(XFAT_CLUSTER_32K, sector_size);
+	}
+
+	return cluster_size;
+}
+
 static xfat_err_t create_dbr(dbr_t* dbr, xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
 	xdisk_t* disk = disk_part->disk;
 
-	memcpy(dbr, dbr_data, disk->sector_size);           // 拷贝模板数据，用于测试修改
-	//memset(dbr, 0, disk->sector_size);
+	u32_t cluster_size;
+	// 计算簇大小，簇大小不能比扇区大小要小
+	if ((u32_t)ctrl->cluster_size < disk->sector_size) {
+		return FS_ERR_PARAM;
+	}
+	else if (ctrl->cluster_size == XFAT_CLUSTER_AUTO) {
+		cluster_size = get_default_cluster_size(disk_part);
+	}
+	else {
+		cluster_size = ctrl->cluster_size;
+	}
+
+	//memcpy(dbr, dbr_data, disk->sector_size);           // 拷贝模板数据，用于测试修改
+	memset(dbr, 0, disk->sector_size);
 	dbr->bpb.BS_jmpBoot[0] = 0xEB;          // 这几个跳转代码是必须的
 	dbr->bpb.BS_jmpBoot[1] = 0x58;          // 不加win会识别为未格式化
 	dbr->bpb.BS_jmpBoot[2] = 0x00;
 	strncpy((char*)dbr->bpb.BS_OEMName, "XFAT SYS", 8);
 	dbr->bpb.BPB_BytsPerSec = disk->sector_size;
+	dbr->bpb.BPB_SecPerClus = to_sector(disk, cluster_size);
+	dbr->bpb.BPB_RsvdSecCnt = 8478;         // 固定值为32，这里根据实际测试，设置为6182
+	dbr->bpb.BPB_NumFATs = 2;               // 固定为2
 	dbr->bpb.BPB_RootEntCnt = 0;            // FAT32未用
 	dbr->bpb.BPB_TotSec16 = 0;              // FAT32未用
 	dbr->bpb.BPB_Media = 0xF8;              // 固定值
@@ -236,7 +303,7 @@ static xfat_err_t create_dbr(dbr_t* dbr, xdisk_part_t* disk_part, xfat_fmt_ctrl_
 	dbr->bpb.BPB_NumHeads = 0xFFFF;         // 不支持硬盘结构
 	dbr->bpb.BPB_HiddSec = disk_part->relative_sector;    // 是否正确?
 	dbr->bpb.BPB_TotSec32 = disk_part->total_sector;
-
+	dbr->fat32.BPB_FATSz32 = cal_fat_tbl_sectors(dbr, disk_part, ctrl);
 	dbr->fat32.BPB_ExtFlags = 0;            // 固定值，实时镜像所有FAT表
 	dbr->fat32.BPB_FSVer = 0;               // 版本号，0
 	dbr->fat32.BPB_RootClus = 2;            // 固定为2，如果为坏簇怎么办？
