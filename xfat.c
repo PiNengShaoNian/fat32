@@ -121,7 +121,20 @@ static xfat_err_t parse_fat_header(xfat_t* xfat, dbr_t* dbr) {
 	return FS_ERR_OK;
 }
 
-xfat_err_t xfat_open(xfat_t* xfat, xdisk_part_t* xdisk_part) {
+xfat_err_t add_to_mount(xfat_t* xfat, const char* mount_name) {
+	memset(xfat->name, 0, XFAT_NAME_LEN);
+	strncpy(xfat->name, mount_name, XFAT_NAME_LEN);
+	xfat->name[XFAT_NAME_LEN - 1] = '\0';
+
+	if (xfat_find_by_name(xfat->name)) {
+		return FS_ERR_EXISTED;
+	}
+
+	xfat_list_add(xfat);
+	return FS_ERR_OK;
+}
+
+xfat_err_t xfat_mount(xfat_t* xfat, xdisk_part_t* xdisk_part, const char* mount_name) {
 	dbr_t* dbr = (dbr_t*)temp_buffer;
 	xdisk_t* xdisk = xdisk_part->disk;
 	xfat->disk_part = xdisk_part;
@@ -144,7 +157,12 @@ xfat_err_t xfat_open(xfat_t* xfat, xdisk_part_t* xdisk_part) {
 	if (err < 0) {
 		return err;
 	}
-	return FS_ERR_OK;
+
+	return add_to_mount(xfat, mount_name);
+}
+
+void xfat_unmount(xfat_t* xfat) {
+	xfat_list_remove(xfat);
 }
 
 // 获取fat文件系统中，第cluster_no个簇的第一个扇区编号
@@ -405,6 +423,11 @@ static int is_filename_match(const char* name_in_dir, const char* to_find_name) 
 
 static const char* skip_first_path_sep(const char* path) {
 	const char* c = path;
+
+	if (c == (const char*)0) {
+		return (const char*)0;
+	}
+
 	while (is_path_sep(*c)) {
 		c++;
 	}
@@ -723,15 +746,24 @@ static xfat_err_t open_sub_file(xfat_t* xfat, u32_t dir_cluster, xfile_t* file, 
 	return FS_ERR_OK;
 }
 
-xfat_err_t xfile_open(xfat_t* xfat, xfile_t* file, const char* path) {
-	path = skip_first_path_sep(path);
-	if (memcmp(path, "..", 2) == 0) {
-		// /..
-		return FS_ERR_PARAM;
+xfat_err_t xfile_open(xfile_t* file, const char* path) {
+	xfat_t* xfat = xfat_find_by_name(path);
+	if (xfat == (xfat_t*)0) {
+		return FS_ERR_NOT_MOUNT;
 	}
-	else if (memcmp(path, ".", 1) == 0) {
-		path++;
+
+	path = get_child_path(path);
+	if (!is_path_end(path)) {
+		path = skip_first_path_sep(path);
+		if (memcmp(path, "..", 2) == 0) {
+			// /..
+			return FS_ERR_PARAM;
+		}
+		else if (memcmp(path, ".", 1) == 0) {
+			path++;
+		}
 	}
+
 	return open_sub_file(xfat, xfat->root_cluster, file, path);
 }
 
@@ -1014,7 +1046,14 @@ static xfat_err_t create_empty_dir(xfat_t* xfat, u8_t failed_on_exist, u32_t par
 	return FS_ERR_OK;
 }
 
-xfat_err_t xfile_mkdir(xfat_t* xfat, const char* path) {
+xfat_err_t xfile_mkdir(const char* path) {
+	xfat_t* xfat = xfat_find_by_name(path);
+	if (xfat == (xfat_t*)0) {
+		return FS_ERR_NOT_MOUNT;
+	}
+
+	path = get_child_path(path);
+
 	u32_t parent_cluster = xfat->root_cluster;
 	while (!is_path_end(path)) {
 		u32_t new_dir_cluster = FILE_DEFAULT_CLUSTER;
@@ -1031,7 +1070,14 @@ xfat_err_t xfile_mkdir(xfat_t* xfat, const char* path) {
 	return FS_ERR_OK;
 }
 
-xfat_err_t xfile_mkfile(xfat_t* xfat, const char* path) {
+xfat_err_t xfile_mkfile(const char* path) {
+	xfat_t* xfat = xfat_find_by_name(path);
+	if (xfat == (xfat_t*)0) {
+		return FS_ERR_NOT_MOUNT;
+	}
+
+	path = get_child_path(path);
+
 	u32_t parent_cluster = xfat->root_cluster;
 
 	while (!is_path_end(path)) {
@@ -1057,12 +1103,19 @@ xfat_err_t xfile_mkfile(xfat_t* xfat, const char* path) {
 	return FS_ERR_OK;
 }
 
-xfat_err_t xfile_rmfile(xfat_t* xfat, const char* path) {
+xfat_err_t xfile_rmfile(const char* path) {
 	diritem_t* diritem = (diritem_t*)0;
 	u32_t curr_cluster, curr_offset;
 	u32_t next_cluster, next_offset;
 	u32_t found_cluster, found_offset;
 	const char* curr_path;
+
+	xfat_t* xfat = xfat_find_by_name(path);
+	if (xfat == (xfat_t*)0) {
+		return FS_ERR_NOT_MOUNT;
+	}
+
+	path = get_child_path(path);
 
 	curr_cluster = xfat->root_cluster;
 	curr_offset = 0;
@@ -1146,12 +1199,19 @@ static xfat_err_t dir_has_child(xfat_t* xfat, u32_t dir_cluster, int* has_child)
 	return FS_ERR_OK;
 }
 
-xfat_err_t xfile_rmdir(xfat_t* xfat, const char* path) {
+xfat_err_t xfile_rmdir(const char* path) {
 	diritem_t* diritem = (diritem_t*)0;
 	u32_t curr_cluster, curr_offset;
 	u32_t next_cluster, next_offset;
 	u32_t found_cluster, found_offset;
 	const char* curr_path;
+
+	xfat_t* xfat = xfat_find_by_name(path);
+	if (xfat == (xfat_t*)0) {
+		return FS_ERR_NOT_MOUNT;
+	}
+
+	path = get_child_path(path);
 
 	curr_cluster = xfat->root_cluster;
 	curr_offset = 0;
@@ -1272,12 +1332,19 @@ static xfat_err_t rmdir_all_children(xfat_t* xfat, u32_t parent_cluster) {
 	return FS_ERR_OK;
 }
 
-xfat_err_t xfile_rmdir_tree(xfat_t* xfat, const char* path) {
+xfat_err_t xfile_rmdir_tree(const char* path) {
 	diritem_t* diritem = (diritem_t*)0;
 	u32_t curr_cluster, curr_offset;
 	u32_t next_cluster, next_offset;
 	u32_t found_cluster, found_offset;
 	const char* curr_path;
+
+	xfat_t* xfat = xfat_find_by_name(path);
+	if (xfat == (xfat_t*)0) {
+		return FS_ERR_NOT_MOUNT;
+	}
+
+	path = get_child_path(path);
 
 	curr_cluster = xfat->root_cluster;
 	curr_offset = 0;
@@ -1716,7 +1783,7 @@ xfat_err_t xfile_resize(xfile_t* file, xfile_size_t size) {
 	}
 }
 
-xfat_err_t xfile_rename(xfat_t* xfat, const char* path, const char* new_name) {
+xfat_err_t xfile_rename(const char* path, const char* new_name) {
 	diritem_t* diritem = (diritem_t*)0;
 	u32_t curr_cluster;
 	u32_t curr_offset;
@@ -1724,6 +1791,13 @@ xfat_err_t xfile_rename(xfat_t* xfat, const char* path, const char* new_name) {
 	u32_t next_offset;
 	u32_t found_cluster;
 	u32_t found_offset;
+
+	xfat_t* xfat = xfat_find_by_name(path);
+	if (xfat == (xfat_t*)0) {
+		return FS_ERR_NOT_MOUNT;
+	}
+
+	path = get_child_path(path);
 
 	curr_cluster = xfat->root_cluster;
 	curr_offset = 0;
@@ -1773,12 +1847,19 @@ xfat_err_t xfile_rename(xfat_t* xfat, const char* path, const char* new_name) {
  * @param arg2 新的时间
  * @return
  */
-static xfat_err_t set_file_time(xfat_t* xfat, const char* path, stime_type_t time_type, xfile_time_t* time) {
+static xfat_err_t set_file_time(const char* path, stime_type_t time_type, xfile_time_t* time) {
 	diritem_t* diritem = (diritem_t*)0;
 	u32_t curr_cluster, curr_offset;
 	u32_t next_cluster, next_offset;
 	u32_t found_cluster, found_offset;
 	const char* curr_path;
+
+	xfat_t* xfat = xfat_find_by_name(path);
+	if (xfat == (xfat_t*)0) {
+		return FS_ERR_NOT_MOUNT;
+	}
+
+	path = get_child_path(path);
 
 	curr_cluster = xfat->root_cluster;
 	curr_offset = 0;
@@ -1844,14 +1925,14 @@ static xfat_err_t set_file_time(xfat_t* xfat, const char* path, stime_type_t tim
 	return FS_ERR_OK;
 }
 
-xfat_err_t xfile_set_atime(xfat_t* xfat, const char* path, xfile_time_t* time) {
-	return set_file_time(xfat, path, XFAT_TIME_ATIME, time);
+xfat_err_t xfile_set_atime(const char* path, xfile_time_t* time) {
+	return set_file_time(path, XFAT_TIME_ATIME, time);
 }
 
-xfat_err_t xfile_set_mtime(xfat_t* xfat, const char* path, xfile_time_t* time) {
-	return set_file_time(xfat, path, XFAT_TIME_MTIME, time);
+xfat_err_t xfile_set_mtime(const char* path, xfile_time_t* time) {
+	return set_file_time(path, XFAT_TIME_MTIME, time);
 }
 
-xfat_err_t xfile_set_ctime(xfat_t* xfat, const char* path, xfile_time_t* time) {
-	return set_file_time(xfat, path, XFAT_TIME_CTIME, time);
+xfat_err_t xfile_set_ctime(const char* path, xfile_time_t* time) {
+	return set_file_time(path, XFAT_TIME_CTIME, time);
 }

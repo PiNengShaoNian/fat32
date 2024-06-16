@@ -209,41 +209,41 @@ int fs_open_test(void) {
 	printf("fs open test...\n");
 
 	xfile_t file;
-	xfat_err_t err = xfile_open(&xfat, &file, "/");
+	xfat_err_t err = xfile_open(&file, "/mp0");
 	if (err) {
-		printf("open file failed %s!\n", "/");
+		printf("open file failed %s!\n", "/mp0");
 		return -1;
 	}
 	xfile_close(&file);
 
-	const char* exist_path = "/12345678ABC";
-	err = xfile_open(&xfat, &file, exist_path);
+	const char* exist_path = "/mp0/12345678ABC";
+	err = xfile_open(&file, exist_path);
 	if (err) {
 		printf("open file failed %s!\n", exist_path);
 		return -1;
 	}
 	xfile_close(&file);
 
-	const char* file1 = "/open/file.txt";
-	const char* file2 = "/open/a0/a1/a2/a3/a4/a5/a6/a7/a8/a9/a10/a11/a12/a13/a14/a15/a16/a17/a18/a19/file.txt";
+	const char* file1 = "/mp0/open/file.txt";
+	const char* file2 = "/mp0/open/a0/a1/a2/a3/a4/a5/a6/a7/a8/a9/a10/a11/a12/a13/a14/a15/a16/a17/a18/a19/file.txt";
 
-	err = xfile_open(&xfat, &file, file1);
+	err = xfile_open(&file, file1);
 	if (err) {
 		printf("open file failed %s!\n", file1);
 		return -1;
 	}
 	xfile_close(&file);
 
-	err = xfile_open(&xfat, &file, file2);
+	err = xfile_open(&file, file2);
 	if (err) {
 		printf("open file failed %s!\n", file2);
 		return -1;
 	}
 	xfile_close(&file);
 
-	const char* not_exist_file = "/file_not_exist.txt";
-	err = xfile_open(&xfat, &file, not_exist_file);
-	if (err) {
+	const char* not_exist_file = "/mp0/file_not_exist.txt";
+	err = xfile_open(&file, not_exist_file);
+	if (err == 0) {
 		printf("open file failed %s!\n", not_exist_file);
 		return -1;
 	}
@@ -332,7 +332,7 @@ int dir_traverse_test(void) {
 
 	xfile_t top_dir;
 	xfileinfo_t fileinfo;
-	xfat_err_t err = xfile_open(&xfat, &top_dir, "/");
+	xfat_err_t err = xfile_open(&top_dir, "/mp0");
 	if (err < 0) {
 		printf("Open directory failed!\n");
 		return -1;
@@ -373,7 +373,7 @@ int dir_traverse_test(void) {
 
 int file_read_and_check(const char* path, xfile_size_t elem_size, xfile_size_t e_count) {
 	xfile_t file;
-	xfat_err_t err = xfile_open(&xfat, &file, path);
+	xfat_err_t err = xfile_open(&file, path);
 	if (err != FS_ERR_OK) {
 		printf("open file failed! %s\n", path);
 		return -1;
@@ -403,8 +403,8 @@ int file_read_and_check(const char* path, xfile_size_t elem_size, xfile_size_t e
 int fs_read_test(void) {
 	printf("\n file read test\n");
 
-	const char* file_0b_path = "/read/0b.bin";
-	const char* file_1MB_path = "/read/1MB.bin";
+	const char* file_0b_path = "/mp0/read/0b.bin";
+	const char* file_1MB_path = "/mp0/read/1MB.bin";
 	xfat_err_t err;
 	memset(read_buffer, 0, sizeof(read_buffer));
 
@@ -494,7 +494,7 @@ int _fs_seek_test(xfile_t* file, xfile_origin_t origin, xfile_ssize_t offset) {
 int fs_seek_test(void) {
 	printf("\n file seek test!\n");
 	xfile_t file;
-	xfat_err_t err = xfile_open(&xfat, &file, "/seek/1MB.bin");
+	xfat_err_t err = xfile_open(&file, "/mp0/seek/1MB.bin");
 	if (err != FS_ERR_OK) {
 		printf("open file failed!\n");
 		return -1;
@@ -584,16 +584,16 @@ int fs_seek_test(void) {
 }
 
 xfat_err_t fs_modify_file_test(void) {
-	const char dir_path[] = "/modify/a0/a1/a2/";
-	const char filename1[] = "ABC.efg";
-	const char filename2[] = "efg.ABC";
+	const char dir_path[] = "/mp0/modify/a0/a1/a2/";
+	const char filename1[] = "/ABC.efg";
+	const char filename2[] = "/efg.ABC";
 
 	char curr_path[64];
 
 	printf("modify file attr test...\n");
 	printf("\n Before rename:\n");
 	xfile_t file;
-	xfat_err_t err = xfile_open(&xfat, &file, dir_path);
+	xfat_err_t err = xfile_open(&file, dir_path);
 	if (err < 0) {
 		printf("open dir failed!\n");
 		return err;
@@ -607,7 +607,7 @@ xfat_err_t fs_modify_file_test(void) {
 	xfile_close(&file);
 
 	sprintf(curr_path, "%s%s", dir_path, filename1);
-	err = xfile_open(&xfat, &file, curr_path);
+	err = xfile_open(&file, curr_path);
 	const char* new_name;
 	if (err < 0) {
 		sprintf(curr_path, "%s%s", dir_path, filename2);
@@ -618,7 +618,7 @@ xfat_err_t fs_modify_file_test(void) {
 		new_name = filename2;
 	}
 
-	err = xfile_rename(&xfat, curr_path, new_name);
+	err = xfile_rename(curr_path, new_name);
 	if (err < 0) {
 		printf("rename failed: %s -- to -- %s\n", curr_path, new_name);
 		return err;
@@ -638,7 +638,7 @@ xfat_err_t fs_modify_file_test(void) {
 	timeinfo.hour = 13;
 	timeinfo.minute = 32;
 	timeinfo.second = 12;
-	err = xfile_set_atime(&xfat, curr_path, &timeinfo);
+	err = xfile_set_atime(curr_path, &timeinfo);
 	if (err < 0) {
 		printf("set acc time failed!\n");
 		return err;
@@ -650,7 +650,7 @@ xfat_err_t fs_modify_file_test(void) {
 	timeinfo.hour = 14;
 	timeinfo.minute = 33;
 	timeinfo.second = 13;
-	err = xfile_set_mtime(&xfat, curr_path, &timeinfo);
+	err = xfile_set_mtime(curr_path, &timeinfo);
 	if (err < 0) {
 		printf("set modify time failed!\n");
 		return err;
@@ -662,14 +662,14 @@ xfat_err_t fs_modify_file_test(void) {
 	timeinfo.hour = 15;
 	timeinfo.minute = 35;
 	timeinfo.second = 14;
-	err = xfile_set_ctime(&xfat, curr_path, &timeinfo);
+	err = xfile_set_ctime(curr_path, &timeinfo);
 	if (err < 0) {
 		printf("set create time failed!\n");
 		return err;
 	}
 
 	// 重命名后，列表显示所有文件，显示命名状态
-	err = xfile_open(&xfat, &file, dir_path);
+	err = xfile_open(&file, dir_path);
 	if (err < 0) {
 		printf("Open dir failed!\n");
 		return err;
@@ -686,7 +686,7 @@ xfat_err_t fs_modify_file_test(void) {
 
 int file_write_test(const char* path, u32_t elem_size, u32_t elem_count, u32_t write_count) {
 	xfile_t file;
-	xfat_err_t err = xfile_open(&xfat, &file, path);
+	xfat_err_t err = xfile_open(&file, path);
 	if (err < 0) {
 		printf("Open failed: %s\n", path);
 		return err;
@@ -726,11 +726,11 @@ int file_write_test(const char* path, u32_t elem_size, u32_t elem_count, u32_t w
 }
 
 int fs_write_test(void) {
-	const char* dir_path = "/write/";
+	const char* dir_path = "/mp0/write/";
 	char file_path[64];
 
 	printf("Write file test!\n");
-	sprintf(file_path, "%s%s", dir_path, "1MB.bin");
+	sprintf(file_path, "%s%s", dir_path, "/1MB.bin");
 	xfat_err_t err = file_write_test(file_path, 32, 64, 5);
 	if (err < 0) {
 		printf("write file failed!\n");
@@ -761,7 +761,7 @@ int fs_write_test(void) {
 		printf("\n expand write file!\n");
 		sprintf(file_path, "%s%s", dir_path, "32KB.bin");
 
-		err = xfile_open(&xfat, &file, file_path);
+		err = xfile_open(&file, file_path);
 		if (err < 0) {
 			printf("Open failed %s\n", file_path);
 		}
@@ -808,12 +808,12 @@ int fs_write_test(void) {
 xfat_err_t fs_create_test(void) {
 	xfat_err_t err = FS_ERR_OK;
 
-	const char* dir_path = "/create/c0/c1/c2/c3/c4/c5/c6/c7/c8/c9";
+	const char* dir_path = "/mp0/create/c0/c1/c2/c3/c4/c5/c6/c7/c8/c9";
 	char path[256];
 	printf("create test\n");
 	for (int i = 0; i < 3; i++) {
 		printf("no %d: create dir %s\n", i, dir_path);
-		err = xfile_mkdir(&xfat, dir_path);
+		err = xfile_mkdir(dir_path);
 
 		if (err < 0) {
 			if (err == FS_ERR_EXISTED) {
@@ -829,7 +829,7 @@ xfat_err_t fs_create_test(void) {
 			sprintf(path, "%s/b%d.txt", dir_path, j);
 			printf("no %d: create file %s\n", i, path);
 
-			err = xfile_mkfile(&xfat, path);
+			err = xfile_mkfile(path);
 			if (err < 0) {
 				if (err == FS_ERR_EXISTED) {
 					printf("file exist %s, continue.\n", path);
@@ -850,7 +850,7 @@ xfat_err_t fs_create_test(void) {
 		}
 	}
 
-	err = xfile_rmdir(&xfat, dir_path);
+	err = xfile_rmdir(dir_path);
 	if (err == FS_ERR_OK) {
 		printf("rm dir failed!\n");
 		return -1;
@@ -861,14 +861,14 @@ xfat_err_t fs_create_test(void) {
 		sprintf(path, "%s/b%d.txt", dir_path, j);
 		printf("rm file %s\n", path);
 
-		xfat_err_t err = xfile_rmfile(&xfat, path);
+		xfat_err_t err = xfile_rmfile(path);
 		if (err < 0) {
 			printf("rm file failed %s\n", path);
 		}
 	}
 
 	xfile_t file;
-	err = xfile_open(&xfat, &file, dir_path);
+	err = xfile_open(&file, dir_path);
 
 	if (err < 0) {
 		return err;
@@ -883,7 +883,7 @@ xfat_err_t fs_create_test(void) {
 		return err;
 	}
 
-	err = xfile_rmdir(&xfat, dir_path);
+	err = xfile_rmdir(dir_path);
 	if (err != FS_ERR_OK) {
 		printf("rm dir failed!\n");
 		return -1;
@@ -895,18 +895,18 @@ xfat_err_t fs_create_test(void) {
 
 xfat_err_t fs_rmdir_tree_test(void) {
 	xfat_err_t err = FS_ERR_OK;
-	const char* dir_path = "/rmtree/c0/c1/c2/c3/c4/c5/c6/c7/c8/c9";
+	const char* dir_path = "/mp0/rmtree/c0/c1/c2/c3/c4/c5/c6/c7/c8/c9";
 	xfile_t file;
 
 	printf("fs_rmdir_tree_test test\n");
 
 	printf("create dir %s\n", dir_path);
-	err = xfile_mkdir(&xfat, dir_path);
+	err = xfile_mkdir(dir_path);
 	if (err && (err != FS_ERR_EXISTED)) {
 		return err;
 	}
 
-	err = xfile_open(&xfat, &file, "/rmtree");
+	err = xfile_open(&file, "/mp0/rmtree");
 	if (err < 0) {
 		return err;
 	}
@@ -919,12 +919,12 @@ xfat_err_t fs_rmdir_tree_test(void) {
 		return err;
 	}
 
-	err = xfile_rmdir_tree(&xfat, "/rmtree/c0");
+	err = xfile_rmdir_tree("/mp0/rmtree/c0");
 	if (err < 0) {
 		return err;
 	}
 
-	err = xfile_open(&xfat, &file, "/rmtree");
+	err = xfile_open(&file, "/mp0/rmtree");
 	if (err < 0) {
 		return err;
 	}
@@ -944,14 +944,14 @@ xfat_err_t fs_rmdir_tree_test(void) {
 xfat_err_t fs_resize_test(void) {
 	xfile_t file;
 	xfat_err_t err;
-	const char* path = "/resize/file.txt";
-	err = xfile_mkfile(&xfat, path);
+	const char* path = "/mp0/resize/file.txt";
+	err = xfile_mkfile(path);
 	if (err < 0 && err != FS_ERR_EXISTED) {
 		printf("create file failed!\n");
 		return err;
 	}
 
-	err = xfile_open(&xfat, &file, path);
+	err = xfile_open(&file, path);
 	if (err < 0) {
 		printf("open file failed!\n");
 		return err;
@@ -1029,62 +1029,67 @@ int main(void) {
 		return -1;
 	}
 
-	err = xfat_open(&xfat, &disk_part);
+	err = xfat_init();
+	if (err < 0) {
+		return err;
+	}
+
+	err = xfat_mount(&xfat, &disk_part, "mp0");
 	if (err < 0) {
 		printf("open fat failed!\n");
 		return -1;
 	}
 
-	//err = fat_dir_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fat_dir_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fat_file_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fat_file_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fs_open_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fs_open_test();
+	if (err) {
+		return err;
+	}
 
-	//err = dir_traverse_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = dir_traverse_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fs_read_test();
-	//if (err < 0) {
-	//	printf("read test failed\n");
-	//	return -1;
-	//}
+	err = fs_read_test();
+	if (err < 0) {
+		printf("read test failed\n");
+		return -1;
+	}
 
-	//err = fs_seek_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fs_seek_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fs_modify_file_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fs_modify_file_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fs_write_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fs_write_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fs_create_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fs_create_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fs_rmdir_tree_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fs_rmdir_tree_test();
+	if (err) {
+		return err;
+	}
 
 	err = fs_resize_test();
 	if (err) {

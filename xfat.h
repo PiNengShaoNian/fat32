@@ -199,10 +199,12 @@ typedef struct _xfileinfo_t {
 
 int is_cluster_valid(u32_t cluster);
 xfat_err_t get_next_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t* next_cluster);
-xfat_err_t xfat_open(xfat_t* xfat, xdisk_part_t* part);
+xfat_err_t xfat_init(void);
+xfat_err_t xfat_mount(xfat_t* xfat, xdisk_part_t* part, const char* mount_name);
+void xfat_unmount(xfat_t* xfat);
 xfat_err_t read_cluster(xfat_t* xfat, u8_t* buffer, u32_t cluster, u32_t count);
 
-xfat_err_t xfile_open(xfat_t* xfat, xfile_t* file, const char* path);
+xfat_err_t xfile_open(xfile_t* file, const char* path);
 xfat_err_t xfile_open_sub(xfile_t* dir, const char* sub_path, xfile_t* sub_file);
 xfat_err_t xfile_close(xfile_t* file);
 
@@ -212,11 +214,11 @@ xfat_err_t xdir_next_file(xfile_t* file, xfileinfo_t* info);
 xfat_err_t xfile_error(xfile_t* file);
 void xfile_clear_err(xfile_t* file);
 
-xfat_err_t xfile_mkdir(xfat_t* xfat, const char* path);
-xfat_err_t xfile_mkfile(xfat_t* xfat, const char* path);
-xfat_err_t xfile_rmfile(xfat_t* xfat, const char* path);
-xfat_err_t xfile_rmdir(xfat_t* xfat, const char* path);
-xfat_err_t xfile_rmdir_tree(xfat_t* xfat, const char* path);
+xfat_err_t xfile_mkdir(const char* path);
+xfat_err_t xfile_mkfile(const char* path);
+xfat_err_t xfile_rmfile(const char* path);
+xfat_err_t xfile_rmdir(const char* path);
+xfat_err_t xfile_rmdir_tree(const char* path);
 xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file);
 xfile_size_t xfile_write(void* buffer, xfile_size_t elem_size, xfile_size_t count, xfile_t* file);
 
@@ -226,10 +228,10 @@ xfat_err_t xfile_seek(xfile_t* file, xfile_ssize_t ssize, xfile_origin_t origin)
 
 xfat_err_t xfile_size(xfile_t* file, xfile_size_t* size);
 xfat_err_t xfile_resize(xfile_t* file, xfile_size_t size);
-xfat_err_t xfile_rename(xfat_t* xfat, const char* path, const char* new_name);
+xfat_err_t xfile_rename(const char* path, const char* new_name);
 
-xfat_err_t xfile_set_atime(xfat_t* xfat, const char* path, xfile_time_t* time);
-xfat_err_t xfile_set_mtime(xfat_t* xfat, const char* path, xfile_time_t* time);
-xfat_err_t xfile_set_ctime(xfat_t* xfat, const char* path, xfile_time_t* time);
+xfat_err_t xfile_set_atime(const char* path, xfile_time_t* time);
+xfat_err_t xfile_set_mtime(const char* path, xfile_time_t* time);
+xfat_err_t xfile_set_ctime(const char* path, xfile_time_t* time);
 
 #endif

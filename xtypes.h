@@ -23,6 +23,7 @@ typedef enum _xfat_err_t {
 	FS_ERR_NAME_USED = -8,
 	FS_ERR_DISK_FULL = -9,
 	FS_ERR_NOT_EMPTY = -10,
+	FS_ERR_NOT_MOUNT = -11,
 } xfat_err_t;
 
 #endif
