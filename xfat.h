@@ -191,6 +191,7 @@ typedef enum _xcluster_size_t {
 typedef struct _xfat_fmt_ctrl_t {
 	xfs_type_t type;
 	xcluster_size_t cluster_size;
+	const char* vol_name;
 } xfat_fmt_ctrl_t;
 
 typedef struct _xfile_time_t {
@@ -218,6 +219,8 @@ typedef struct _xfat_fmt_info_t {
 	u8_t media;
 	u32_t fat_sectors;
 	u32_t rsvd_sectors;
+	u32_t root_cluster;
+	u32_t sec_per_cluster;
 } xfat_fmt_info_t;
 
 int is_cluster_valid(u32_t cluster);

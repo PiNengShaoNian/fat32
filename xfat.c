@@ -171,6 +171,7 @@ void xfat_unmount(xfat_t* xfat) {
 xfat_err_t xfat_fmt_ctrl_init(xfat_fmt_ctrl_t* ctrl) {
 	ctrl->type = FS_WIN95_FAT32_0;
 	ctrl->cluster_size = XFAT_CLUSTER_AUTO;
+	ctrl->vol_name = (const char*)0;
 	return FS_ERR_OK;
 }
 
@@ -386,6 +387,35 @@ static xfat_err_t create_fat_table(xfat_fmt_info_t* fmt_info, xdisk_part_t* xdis
 	return err;
 }
 
+static xfat_err_t create_root_dir(xfat_fmt_info_t* fmt_info, xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
+	xfat_err_t err;
+	diritem_t* diritem = (diritem_t*)temp_buffer;
+	xdisk_t* disk = disk_part->disk;
+	memset(temp_buffer, 0, disk->sector_size);
+	u32_t data_sector = fmt_info->rsvd_sectors +
+		(fmt_info->fat_count * fmt_info->fat_sectors) +
+		(fmt_info->root_cluster - 2) * fmt_info->sec_per_cluster;
+	u32_t sector = disk_part->start_sector + data_sector;
+	for (u32_t i = 0; i < fmt_info->sec_per_cluster; i++) {
+		err = xdisk_write_sector(disk, temp_buffer, sector + i, 1);
+		if (err < 0) {
+			return err;
+		}
+	}
+
+	if (ctrl->vol_name) {
+		diritem_init_default(diritem, disk, 0, ctrl->vol_name ? ctrl->vol_name : "DISK", 0);
+		diritem->DIR_Attr |= DIRITEM_ATTR_VOLUME_ID;
+
+		err = xdisk_write_sector(disk, temp_buffer, sector, 1);
+		if (err < 0) {
+			return err;
+		}
+	}
+
+	return FS_ERR_OK;
+}
+
 xfat_err_t xfat_format(xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
 	if (!xfat_is_fs_supported(ctrl->type)) {
 		return FS_ERR_INVALID_FS;
@@ -402,8 +432,15 @@ xfat_err_t xfat_format(xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
 	fmt_info.media = dbr->bpb.BPB_Media;
 	fmt_info.fat_sectors = dbr->fat32.BPB_FATSz32;
 	fmt_info.rsvd_sectors = dbr->bpb.BPB_RsvdSecCnt;
+	fmt_info.root_cluster = dbr->fat32.BPB_RootClus;
+	fmt_info.sec_per_cluster = dbr->bpb.BPB_SecPerClus;
 
 	err = create_fat_table(&fmt_info, disk_part, ctrl);
+	if (err < 0) {
+		return err;
+	}
+
+	err = create_root_dir(&fmt_info, disk_part, ctrl);
 	if (err < 0) {
 		return err;
 	}

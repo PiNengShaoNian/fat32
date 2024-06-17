@@ -1013,6 +1013,8 @@ xfat_err_t fs_format_test(void) {
 
 	xfat_fmt_ctrl_init(&ctrl);
 	ctrl.cluster_size = XFAT_CLUSTER_512B;
+	ctrl.vol_name = "XFAT DISK";
+
 	err = xfat_format(&fmt_part, &ctrl);
 	if (err < 0) {
 		return err;
