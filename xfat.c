@@ -346,13 +346,69 @@ int xfat_is_fs_supported(xfs_type_t type) {
 	}
 }
 
+/**
+ * 格式化FAT表
+ * @param dbr db结构
+ * @param xdisk_part 分区信息
+ * @param ctrl 格式化参数
+ * @return
+ */
+static xfat_err_t create_fat_table(xfat_fmt_info_t* fmt_info, xdisk_part_t* xdisk_part, xfat_fmt_ctrl_t* ctrl) {
+	u32_t i, j;
+	xdisk_t* disk = xdisk_part->disk;
+	cluster32_t* fat_buffer = (cluster32_t*)temp_buffer;
+	xfat_err_t err = FS_ERR_OK;
+	u32_t fat_start_sector = fmt_info->rsvd_sectors + xdisk_part->start_sector;
+
+	// 逐个写多个FAT表，最好是挂载磁盘后查看下FAT表二进制内容
+	memset(fat_buffer, 0, disk->sector_size);
+	for (i = 0; i < fmt_info->fat_count; i++) {
+		u32_t start_sector = fat_start_sector + fmt_info->fat_sectors * i;
+
+		// 每个FAT表的前1、2簇已经被占用, 簇2分配给根目录，保留
+		fat_buffer[0].v = (u32_t)(0x0FFFFF00 | fmt_info->media);
+		fat_buffer[1].v = 0x0FFFFFFF;
+		fat_buffer[2].v = 0x0FFFFFFF;
+		err = xdisk_write_sector(disk, (u8_t*)fat_buffer, start_sector++, disk->sector_size);
+		if (err < 0) {
+			return err;
+		}
+
+		// 再写其余扇区的簇
+		fat_buffer[0].v = fat_buffer[1].v = fat_buffer[2].v = 0;
+		for (j = 1; j < fmt_info->fat_sectors; j++) {
+			err = xdisk_write_sector(disk, (u8_t*)fat_buffer, start_sector++, disk->sector_size);
+			if (err < 0) {
+				return err;
+			}
+		}
+	}
+	return err;
+}
+
 xfat_err_t xfat_format(xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
 	if (!xfat_is_fs_supported(ctrl->type)) {
 		return FS_ERR_INVALID_FS;
 	}
 
 	dbr_t* dbr = (dbr_t*)temp_buffer;
-	return create_dbr(dbr, disk_part, ctrl);
+	u32_t err = create_dbr(dbr, disk_part, ctrl);
+	if (err < 0) {
+		return err;
+	}
+
+	xfat_fmt_info_t fmt_info;
+	fmt_info.fat_count = dbr->bpb.BPB_NumFATs;
+	fmt_info.media = dbr->bpb.BPB_Media;
+	fmt_info.fat_sectors = dbr->fat32.BPB_FATSz32;
+	fmt_info.rsvd_sectors = dbr->bpb.BPB_RsvdSecCnt;
+
+	err = create_fat_table(&fmt_info, disk_part, ctrl);
+	if (err < 0) {
+		return err;
+	}
+
+	return err;
 }
 
 // 获取fat文件系统中，第cluster_no个簇的第一个扇区编号

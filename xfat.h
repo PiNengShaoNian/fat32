@@ -213,6 +213,13 @@ typedef struct _xfileinfo_t {
 	xfile_time_t modify_time;
 } xfileinfo_t;
 
+typedef struct _xfat_fmt_info_t {
+	u8_t fat_count;
+	u8_t media;
+	u32_t fat_sectors;
+	u32_t rsvd_sectors;
+} xfat_fmt_info_t;
+
 int is_cluster_valid(u32_t cluster);
 xfat_err_t get_next_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t* next_cluster);
 xfat_err_t xfat_init(void);
