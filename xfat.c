@@ -445,6 +445,10 @@ static xfat_err_t create_fsinfo(xfat_fmt_info_t* fmt_info, xdisk_part_t* xdisk_p
 	return FS_ERR_OK;
 }
 
+static xfat_err_t rewrite_partition_table(xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
+	return xdisk_set_part_type(disk_part, ctrl->type);
+}
+
 xfat_err_t xfat_format(xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
 	if (!xfat_is_fs_supported(ctrl->type)) {
 		return FS_ERR_INVALID_FS;
@@ -477,6 +481,11 @@ xfat_err_t xfat_format(xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
 	}
 
 	err = create_fsinfo(&fmt_info, disk_part, ctrl);
+	if (err < 0) {
+		return err;
+	}
+
+	err = rewrite_partition_table(disk_part, ctrl);
 
 	return err;
 }

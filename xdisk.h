@@ -68,5 +68,6 @@ xfat_err_t xdisk_get_part(xdisk_t* disk, xdisk_part_t* xdisk_part, int part_no);
 xfat_err_t xdisk_curr_time(struct _xdisk_t* disk, struct _xfile_time_t* timeinfo);
 xfat_err_t xdisk_read_sector(xdisk_t* disk, u8_t* buffer, u32_t start_sector, u32_t count);
 xfat_err_t xdisk_write_sector(xdisk_t* disk, u8_t* buffer, u32_t start_sector, u32_t count);
+xfat_err_t xdisk_set_part_type(xdisk_part_t* disk, xfs_type_t type);
 
 #endif
