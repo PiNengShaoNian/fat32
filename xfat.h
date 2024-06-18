@@ -115,6 +115,19 @@ typedef union _cluster32_t {
 	u32_t v;
 } cluster32_t;
 
+/**
+ * FSInfo结构
+ */
+typedef struct _fsinfo_t {
+	u32_t FSI_LoadSig;                  // 固定标记：0x41615252
+	u8_t FSI_Reserved1[480];
+	u32_t FSI_StrucSig;                 // 固定标记： 0x61417272
+	u32_t FSI_Free_Count;               // 最新剩余簇数
+	u32_t FSI_Next_Free;                // 从何处开始找剩余簇
+	u8_t FSI_Reserved2[12];
+	u32_t FSI_TrailSig;                 // 固定标记： 0xAA550000
+} fsinfo_t;
+
 #pragma pack()
 
 #define XFAT_NAME_LEN 16
@@ -221,6 +234,8 @@ typedef struct _xfat_fmt_info_t {
 	u32_t rsvd_sectors;
 	u32_t root_cluster;
 	u32_t sec_per_cluster;
+	u32_t backup_sector;
+	u32_t fsinfo_sector;
 } xfat_fmt_info_t;
 
 int is_cluster_valid(u32_t cluster);

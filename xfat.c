@@ -308,6 +308,7 @@ static xfat_err_t create_dbr(dbr_t* dbr, xdisk_part_t* disk_part, xfat_fmt_ctrl_
 	dbr->fat32.BPB_ExtFlags = 0;            // 固定值，实时镜像所有FAT表
 	dbr->fat32.BPB_FSVer = 0;               // 版本号，0
 	dbr->fat32.BPB_RootClus = 2;            // 固定为2，如果为坏簇怎么办？
+	dbr->fat32.BPB_FsInfo = 1;
 	memset(dbr->fat32.BPB_Reserved, 0, 12);
 	dbr->fat32.BS_DrvNum = 0x80;            // 固定为0
 	dbr->fat32.BS_Reserved1 = 0;
@@ -416,6 +417,34 @@ static xfat_err_t create_root_dir(xfat_fmt_info_t* fmt_info, xdisk_part_t* disk_
 	return FS_ERR_OK;
 }
 
+static xfat_err_t create_fsinfo(xfat_fmt_info_t* fmt_info, xdisk_part_t* xdisk_part, xfat_fmt_ctrl_t* ctrl) {
+	xfat_err_t err;
+	fsinfo_t* fsinfo = (fsinfo_t*)temp_buffer;
+	xdisk_t* disk = xdisk_part->disk;
+	u32_t fsinfo_sector = xdisk_part->start_sector + fmt_info->fsinfo_sector;
+
+	memset(fsinfo, 0, sizeof(fsinfo_t));
+
+	fsinfo->FSI_LoadSig = 0x41615252;
+	fsinfo->FSI_StrucSig = 0x61417272;
+	fsinfo->FSI_Free_Count = 0xFFFFFFFF;
+	fsinfo->FSI_Next_Free = 0xFFFFFFFF;         // 根目录不一定从簇2开始
+	fsinfo->FSI_TrailSig = 0xAA550000;
+
+	err = xdisk_write_sector(disk, (u8_t*)fsinfo, fsinfo_sector, 1);
+	if (err < 0) {
+		return err;
+	}
+
+	// 同时在备份区中写一个备份
+	err = xdisk_write_sector(disk, (u8_t*)fsinfo, fsinfo_sector + fmt_info->backup_sector, 1);
+	if (err < 0) {
+		return err;
+	}
+
+	return FS_ERR_OK;
+}
+
 xfat_err_t xfat_format(xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
 	if (!xfat_is_fs_supported(ctrl->type)) {
 		return FS_ERR_INVALID_FS;
@@ -434,6 +463,8 @@ xfat_err_t xfat_format(xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
 	fmt_info.rsvd_sectors = dbr->bpb.BPB_RsvdSecCnt;
 	fmt_info.root_cluster = dbr->fat32.BPB_RootClus;
 	fmt_info.sec_per_cluster = dbr->bpb.BPB_SecPerClus;
+	fmt_info.backup_sector = dbr->fat32.BPB_BkBootSec;
+	fmt_info.fsinfo_sector = dbr->fat32.BPB_FsInfo;
 
 	err = create_fat_table(&fmt_info, disk_part, ctrl);
 	if (err < 0) {
@@ -444,6 +475,8 @@ xfat_err_t xfat_format(xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
 	if (err < 0) {
 		return err;
 	}
+
+	err = create_fsinfo(&fmt_info, disk_part, ctrl);
 
 	return err;
 }
