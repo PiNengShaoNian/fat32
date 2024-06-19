@@ -19,8 +19,9 @@ int disk_io_test(void) {
 	disk_test.driver = &vdisk_driver;
 	memset(read_buffer, 0, sizeof(read_buffer));
 
-
-	err = xdisk_open(&disk_test, "vdisk_test", &vdisk_driver, (void*)disk_path_test);
+#define DISK_BUF_NR 3
+	static u8_t disk_buf[XFAT_BUF_SIZE(512, DISK_BUF_NR)];
+	err = xdisk_open(&disk_test, "vdisk_test", &vdisk_driver, (void*)disk_path_test, disk_buf, sizeof(disk_buf));
 	if (err) {
 		printf("open disk failed!\n");
 		return -1;
@@ -1025,6 +1026,8 @@ xfat_err_t fs_format_test(void) {
 }
 
 int main(void) {
+#define DISK_BUF_NR 3
+	static u8_t disk_buf[XFAT_BUF_SIZE(512, DISK_BUF_NR)];
 	for (int i = 0; i < sizeof(write_buffer) / sizeof(u32_t); i++) {
 		write_buffer[i] = i;
 	}
@@ -1034,7 +1037,7 @@ int main(void) {
 		return err;
 	}
 
-	err = xdisk_open(&disk, "vdisk", &vdisk_driver, (void*)disk_path);
+	err = xdisk_open(&disk, "vdisk", &vdisk_driver, (void*)disk_path, disk_buf, sizeof(disk_buf));
 	if (err) {
 		printf("open disk failed!\n");
 		return -1;

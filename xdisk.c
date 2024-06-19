@@ -2,10 +2,16 @@
 
 u8_t temp_buffer[512];
 
-xfat_err_t xdisk_open(xdisk_t* disk, const char* name, xdisk_driver_t* driver, void* init_data) {
+xfat_err_t xdisk_open(xdisk_t* disk, const char* name, xdisk_driver_t* driver,
+	void* init_data, u8_t* disk_buf, u32_t buf_size) {
 	xfat_err_t err;
+	xfat_obj_init(&disk->obj, XFAT_OBJ_DISK);
 	disk->driver = driver;
 	err = disk->driver->open(disk, init_data);
+	if (err < 0) {
+		return err;
+	}
+	err = xfat_bpool_init(to_obj(disk), disk->sector_size, disk_buf, buf_size);
 	if (err < 0) {
 		return err;
 	}

@@ -2,6 +2,8 @@
 #define XDISK_H
 
 #include "xtypes.h"
+#include "xfat_obj.h"
+#include "xfat_buf.h"
 
 typedef enum {
 	FS_NOT_VALID = 0x00,
@@ -46,11 +48,13 @@ typedef struct _xdisk_driver_t {
 } xdisk_driver_t;
 
 typedef struct _xdisk_t {
+	xfat_obj_t obj;
 	const char* name;
 	u32_t sector_size;
 	u32_t total_sector;
 	xdisk_driver_t* driver;
 	void* data;
+	xfat_bpool_t bpool;
 } xdisk_t;
 
 typedef struct _xdisk_part_t {
@@ -61,7 +65,8 @@ typedef struct _xdisk_part_t {
 	xdisk_t* disk;
 } xdisk_part_t;
 
-xfat_err_t xdisk_open(xdisk_t* disk, const char* name, xdisk_driver_t* driver, void* init_data);
+xfat_err_t xdisk_open(xdisk_t* disk, const char* name, xdisk_driver_t* driver, void* init_data,
+	u8_t* disk_buf, u32_t buf_size);
 xfat_err_t xdisk_close(xdisk_t* disk);
 xfat_err_t xdisk_get_part_count(xdisk_t* disk, u32_t* count);
 xfat_err_t xdisk_get_part(xdisk_t* disk, xdisk_part_t* xdisk_part, int part_no);

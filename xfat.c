@@ -388,6 +388,7 @@ static xfat_err_t create_fat_table(xfat_fmt_info_t* fmt_info, xdisk_part_t* xdis
 	return err;
 }
 
+static xfat_err_t diritem_init_default(diritem_t* dir_item, xdisk_t* disk, u8_t is_dir, const char* name, u32_t cluster);
 static xfat_err_t create_root_dir(xfat_fmt_info_t* fmt_info, xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
 	xfat_err_t err;
 	diritem_t* diritem = (diritem_t*)temp_buffer;
