@@ -131,10 +131,12 @@
     <ClCompile Include="xdisk.c" />
     <ClCompile Include="xfat.c" />
     <ClCompile Include="driver.c" />
+    <ClCompile Include="xfat_buf.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="xdisk.h" />
     <ClInclude Include="xfat.h" />
+    <ClInclude Include="xfat_buf.h" />
     <ClInclude Include="xtypes.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
