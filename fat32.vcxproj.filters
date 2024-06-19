@@ -30,6 +30,9 @@
     <ClCompile Include="xfat_buf.c">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="xfat_obj.c">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="xtypes.h">
@@ -42,6 +45,9 @@
       <Filter>源文件</Filter>
     </ClInclude>
     <ClInclude Include="xfat_buf.h">
+      <Filter>源文件</Filter>
+    </ClInclude>
+    <ClInclude Include="xfat_obj.h">
       <Filter>源文件</Filter>
     </ClInclude>
   </ItemGroup>
