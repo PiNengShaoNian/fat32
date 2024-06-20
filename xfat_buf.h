@@ -19,7 +19,7 @@ typedef struct _xfat_buf_t {
 	struct _xfat_buf_t* pre;
 } xfat_buf_t;
 
-#define xfat_buf_state(buf) ((buf)->flags & XFAT_BUF_STATE_MASK)
+#define xfat_buf_state(buf) ((buf)->flags & XFAT_BUF_STATE_MSK)
 void xfat_buf_set_state(xfat_buf_t* buf, u32_t state);
 
 typedef struct _xfat_bpool_t {
@@ -31,5 +31,9 @@ typedef struct _xfat_bpool_t {
 #define XFAT_BUF_SIZE(sector_size, sector_nr) ((sizeof(xfat_buf_t) + (sector_size)) * (sector_nr))
 
 xfat_err_t xfat_bpool_init(xfat_obj_t* obj, u32_t sector_size, u8_t* buffer, u32_t buf_size);
+xfat_err_t xfat_bpool_read_sector(xfat_obj_t* obj, xfat_buf_t** buf, u32_t sector_no);
+xfat_err_t xfat_bpool_write_sector(xfat_obj_t* obj, xfat_buf_t* buf, u8_t is_through);
+xfat_err_t xfat_bpool_alloc(xfat_obj_t* obj, xfat_buf_t** buf, u32_t sector_no);
+xfat_err_t xfat_bpool_flush(xfat_obj_t* obj);
 
 #endif // !XFAT_BUF_H

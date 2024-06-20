@@ -25,6 +25,7 @@ typedef enum _xfat_err_t {
 	FS_ERR_NOT_EMPTY = -10,
 	FS_ERR_NOT_MOUNT = -11,
 	FS_ERR_INVALID_FS = -12,
+	FS_ERR_NO_BUFFER = -13,
 } xfat_err_t;
 
 #endif

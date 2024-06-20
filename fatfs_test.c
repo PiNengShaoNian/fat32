@@ -11,6 +11,48 @@ const char* disk_path = "disk.img";
 static u32_t write_buffer[160 * 1024];
 static u32_t read_buffer[160 * 1024];
 
+
+// ¥≈≈Ãª∫¥Ê∂¡–¥≤‚ ‘
+int disk_buf_test(xdisk_t* disk, int buf_nr) {
+	xfat_err_t err;
+	xfat_buf_t* disk_buf;
+	int i;
+
+	// ¡¨–¯∂¡–¥≤‚ ‘£¨»´≤ø π”√ª∫¥Ê
+	for (i = 0; i < buf_nr; i++) {
+		err = xfat_bpool_read_sector(&disk->obj, &disk_buf, i);
+		if (err < 0) return err;
+
+		memset(disk_buf->buf, i, disk->sector_size);
+
+		err = xfat_bpool_write_sector(&disk->obj, disk_buf, 0);
+		if (err < 0) return err;
+	}
+
+	for (i = 0; i < buf_nr; i++) {
+		err = xfat_bpool_read_sector(&disk->obj, &disk_buf, i);
+		if (err < 0) return err;
+
+		memset(disk_buf->buf, i, disk->sector_size);
+
+		err = xfat_bpool_write_sector(&disk->obj, disk_buf, 0);
+		if (err < 0) return err;
+	}
+	for (i = 0; i < buf_nr; i++) {
+		err = xfat_bpool_read_sector(&disk->obj, &disk_buf, i + buf_nr);
+		if (err < 0) return err;
+
+		memset(disk_buf->buf, i + buf_nr, disk->sector_size);
+
+		err = xfat_bpool_write_sector(&disk->obj, disk_buf, 0);
+		if (err < 0) return err;
+	}
+
+	xfat_bpool_flush(&disk->obj);
+
+	return 0;
+}
+
 int disk_io_test(void) {
 	int err;
 
@@ -41,6 +83,12 @@ int disk_io_test(void) {
 	err = memcmp((u8_t*)read_buffer, (u8_t*)write_buffer, disk_test.sector_size * 2);
 	if (err != 0) {
 		printf("data not equal!\n");
+		return -1;
+	}
+
+	err = disk_buf_test(&disk_test, DISK_BUF_NR);
+	if (err < 0) {
+		printf("disk cache test failed!\n");
 		return -1;
 	}
 
