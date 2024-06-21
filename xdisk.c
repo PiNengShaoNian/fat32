@@ -19,6 +19,10 @@ xfat_err_t xdisk_open(xdisk_t* disk, const char* name, xdisk_driver_t* driver,
 	return FS_ERR_OK;
 }
 xfat_err_t xdisk_close(xdisk_t* disk) {
+	xfat_err_t err = xfat_bpool_flush(to_obj(disk));
+	if (err < 0) {
+		return err;
+	}
 	return disk->driver->close(disk);
 }
 
@@ -43,14 +47,14 @@ xfat_err_t xdisk_curr_time(struct _xdisk_t* disk, struct _xfile_time_t* timeinfo
 static xfat_err_t disk_get_extend_part_count(xdisk_t* disk, u32_t start_sector, u32_t* count) {
 	int r_count = 0;
 	u32_t ext_start_sector = start_sector;
-	u8_t* disk_buffer = temp_buffer;
 	mbr_part_t* part;
 	do {
-		int err = xdisk_read_sector(disk, disk_buffer, start_sector, 1);
+		xfat_buf_t* disk_buf;
+		int err = xfat_bpool_read_sector(to_obj(disk), &disk_buf, start_sector);
 		if (err < 0) {
 			return err;
 		}
-		part = ((mbr_t*)disk_buffer)->part_info;
+		part = ((mbr_t*)disk_buf->buf)->part_info;
 		if (part->system_id == FS_NOT_VALID) {
 			break;
 		}
@@ -67,8 +71,8 @@ static xfat_err_t disk_get_extend_part_count(xdisk_t* disk, u32_t start_sector, 
 
 xfat_err_t xdisk_get_part_count(xdisk_t* disk, u32_t* count) {
 	mbr_part_t* part;
-	u8_t* disk_buffer = temp_buffer;
-	int err = xdisk_read_sector(disk, disk_buffer, 0, 1);
+	xfat_buf_t* disk_buf;
+	int err = xfat_bpool_read_sector(to_obj(disk), &disk_buf, 0);
 	if (err < 0) {
 		return err;
 	}
@@ -76,7 +80,7 @@ xfat_err_t xdisk_get_part_count(xdisk_t* disk, u32_t* count) {
 	int r_count = 0;
 	u8_t extend_part_flag = 0;
 	u32_t start_sector[4];
-	part = ((mbr_t*)disk_buffer)->part_info;
+	part = ((mbr_t*)disk_buf->buf)->part_info;
 	for (int i = 0; i < MBR_PRIMARY_PART_NR; i++, part++) {
 		if (part->system_id == FS_NOT_VALID) {
 			continue;
@@ -108,17 +112,17 @@ xfat_err_t xdisk_get_part_count(xdisk_t* disk, u32_t* count) {
 
 static xfat_err_t disk_get_extend_part(xdisk_t* disk, xdisk_part_t* xdisk_part, u32_t start_sector,
 	int part_no, u32_t* count) {
-	u8_t* disk_buffer = temp_buffer;
 	xfat_err_t err = FS_ERR_OK;
 	int curr_no = -1;
 	u32_t ext_start_sector = start_sector;
 	do {
 		mbr_part_t* part;
-		err = xdisk_read_sector(disk, disk_buffer, start_sector, 1);
+		xfat_buf_t* disk_buf;
+		err = xfat_bpool_read_sector(to_obj(disk), &disk_buf, start_sector);
 		if (err < 0) {
 			return err;
 		}
-		part = ((mbr_t*)disk_buffer)->part_info;
+		part = ((mbr_t*)disk_buf->buf)->part_info;
 		if (part->system_id == FS_NOT_VALID) {
 			err = FS_ERR_EOF;
 			break;
@@ -144,13 +148,13 @@ static xfat_err_t disk_get_extend_part(xdisk_t* disk, xdisk_part_t* xdisk_part, 
 }
 
 xfat_err_t xdisk_get_part(xdisk_t* disk, xdisk_part_t* xdisk_part, int part_no) {
-	u8_t* disk_buffer = temp_buffer;
-	int err = xdisk_read_sector(disk, disk_buffer, 0, 1);
+	xfat_buf_t* disk_buf;
+	int err = xfat_bpool_read_sector(to_obj(disk), &disk_buf, 0);
 	if (err < 0) {
 		return err;
 	}
 
-	mbr_part_t* mbr_part = ((mbr_t*)disk_buffer)->part_info;
+	mbr_part_t* mbr_part = ((mbr_t*)disk_buf->buf)->part_info;
 	int curr_no = -1;
 	for (int i = 0; i < MBR_PRIMARY_PART_NR; i++, mbr_part++) {
 		if (mbr_part->system_id == FS_NOT_VALID) {
@@ -167,7 +171,7 @@ xfat_err_t xdisk_get_part(xdisk_t* disk, xdisk_part_t* xdisk_part, int part_no) 
 			}
 			else {
 				curr_no += count;
-				err = xdisk_read_sector(disk, disk_buffer, 0, 1);
+				err = xfat_bpool_read_sector(to_obj(disk), &disk_buf, 0);
 				if (err < 0) {
 					return err;
 				}
@@ -189,20 +193,19 @@ xfat_err_t xdisk_get_part(xdisk_t* disk, xdisk_part_t* xdisk_part, int part_no) 
 }
 
 static xfat_err_t set_ext_part_type(xdisk_part_t* part, u32_t ext_start_sector, xfs_type_t type) {
-	u8_t* disk_buffer = temp_buffer;
 	xfat_err_t err = FS_ERR_OK;
 	u32_t start_sector = ext_start_sector;
 	xdisk_t* disk = part->disk;
 
 	do {
 		mbr_part_t* ext_part;
-
-		err = xdisk_read_sector(disk, disk_buffer, start_sector, 1);
+		xfat_buf_t* disk_buf;
+		err = xfat_bpool_read_sector(to_obj(disk), &disk_buf, start_sector);
 		if (err < 0) {
 			return err;
 		}
 
-		ext_part = ((mbr_t*)disk_buffer)->part_info;
+		ext_part = ((mbr_t*)disk_buf->buf)->part_info;
 		if (ext_part->system_id == FS_NOT_VALID) {
 			err = FS_ERR_EOF;
 			break;
@@ -211,7 +214,7 @@ static xfat_err_t set_ext_part_type(xdisk_part_t* part, u32_t ext_start_sector, 
 		if (start_sector + ext_part->relative_sectors == part->start_sector) {
 			ext_part->system_id = type;
 
-			err = xdisk_write_sector(disk, disk_buffer, start_sector, 1);
+			err = xfat_bpool_write_sector(to_obj(disk), disk_buf, 0);
 			return err;
 		}
 
@@ -227,14 +230,14 @@ static xfat_err_t set_ext_part_type(xdisk_part_t* part, u32_t ext_start_sector, 
 }
 
 xfat_err_t xdisk_set_part_type(xdisk_part_t* xdisk_part, xfs_type_t type) {
-	u8_t* disk_buffer = temp_buffer;
 	xdisk_t* disk = xdisk_part->disk;
-	int err = xdisk_read_sector(disk, disk_buffer, 0, 1);
+	xfat_buf_t* disk_buf;
+	int err = xfat_bpool_read_sector(to_obj(disk), &disk_buf, 0);
 	if (err < 0) {
 		return err;
 	}
 
-	mbr_part_t* mbr_part = ((mbr_t*)disk_buffer)->part_info;
+	mbr_part_t* mbr_part = ((mbr_t*)disk_buf->buf)->part_info;
 	for (int i = 0; i < MBR_PRIMARY_PART_NR; i++, mbr_part++) {
 		if (mbr_part->system_id == FS_NOT_VALID) {
 			continue;
@@ -249,7 +252,7 @@ xfat_err_t xdisk_set_part_type(xdisk_part_t* xdisk_part, xfs_type_t type) {
 				return FS_ERR_OK;
 			}
 			else {
-				err = xdisk_read_sector(disk, disk_buffer, 0, 1);
+				err = xfat_bpool_read_sector(to_obj(disk), &disk_buf, 0);
 				if (err < 0) {
 					return err;
 				}
@@ -258,7 +261,7 @@ xfat_err_t xdisk_set_part_type(xdisk_part_t* xdisk_part, xfs_type_t type) {
 		else {
 			if (mbr_part->relative_sectors == xdisk_part->start_sector) {
 				mbr_part->system_id = type;
-				return xdisk_write_sector(disk, disk_buffer, 0, 1);
+				return xfat_bpool_write_sector(to_obj(disk), disk_buf, 0);
 			}
 		}
 	}
