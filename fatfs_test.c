@@ -422,10 +422,18 @@ int dir_traverse_test(void) {
 
 int file_read_and_check(const char* path, xfile_size_t elem_size, xfile_size_t e_count) {
 	xfile_t file;
+	static u8_t file_buf[XFAT_BUF_SIZE(512, 4)];
+
 	xfat_err_t err = xfile_open(&file, path);
 	if (err != FS_ERR_OK) {
 		printf("open file failed! %s\n", path);
 		return -1;
+	}
+
+	err = xfile_set_buf(&file, file_buf, sizeof(file_buf));
+	if (err < 0) {
+		printf("set file buf failed!\n");
+		return err;
 	}
 
 	xfile_size_t readed_count = 0;
@@ -1076,6 +1084,8 @@ xfat_err_t fs_format_test(void) {
 int main(void) {
 #define DISK_BUF_NR 3
 	static u8_t disk_buf[XFAT_BUF_SIZE(512, DISK_BUF_NR)];
+	static u8_t fat_buf[XFAT_BUF_SIZE(512, 4)];
+
 	for (int i = 0; i < sizeof(write_buffer) / sizeof(u32_t); i++) {
 		write_buffer[i] = i;
 	}
@@ -1111,6 +1121,12 @@ int main(void) {
 	if (err < 0) {
 		printf("open fat failed!\n");
 		return -1;
+	}
+
+	err = xfat_set_buf(&xfat, fat_buf, sizeof(fat_buf));
+	if (err < 0) {
+		printf("set fat buf failed!\n");
+		return err;
 	}
 
 	err = fat_dir_test();

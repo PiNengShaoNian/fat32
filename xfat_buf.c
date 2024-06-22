@@ -2,14 +2,24 @@
 #include "xdisk.h"
 #include "xfat.h"
 
-static xfat_bpool_t* get_obj_bpool(xfat_obj_t* obj) {
+static xfat_bpool_t* get_obj_bpool(xfat_obj_t* obj, u8_t use_low) {
+	xfat_bpool_t* pool;
+
 	if (obj->type == XFAT_OBJ_FILE) {
 		xfile_t* file = to_type(obj, xfile_t);
-		obj = to_obj(file->xfat->disk_part->disk);
+		pool = &file->bpool;
+		if (!use_low || (pool->size > 0)) {
+			return pool;
+		}
+		obj = to_obj(file->xfat);
 	}
 
 	if (obj->type == XFAT_OBJ_FAT) {
 		xfat_t* xfat = to_type(obj, xfat_t);
+		pool = &xfat->bpool;
+		if (!use_low || (pool->size > 0)) {
+			return pool;
+		}
 		obj = to_obj(xfat->disk_part->disk);
 	}
 
@@ -97,7 +107,7 @@ xfat_err_t xfat_bpool_init(xfat_obj_t* obj, u32_t sector_size, u8_t* buffer, u32
 	xfat_buf_t* buf_start = (xfat_buf_t*)buffer;
 	u8_t* sector_buf_start = buffer + buf_count * sizeof(xfat_buf_t);
 
-	xfat_bpool_t* pool = get_obj_bpool(obj);
+	xfat_bpool_t* pool = get_obj_bpool(obj, 0);
 	if (pool == (xfat_bpool_t*)0) {
 		return FS_ERR_PARAM;
 	}
@@ -134,7 +144,7 @@ xfat_err_t xfat_bpool_init(xfat_obj_t* obj, u32_t sector_size, u8_t* buffer, u32
 }
 
 xfat_err_t xfat_bpool_read_sector(xfat_obj_t* obj, xfat_buf_t** buf, u32_t sector_no) {
-	xfat_bpool_t* pool = get_obj_bpool(obj);
+	xfat_bpool_t* pool = get_obj_bpool(obj, 1);
 	if (pool == (xfat_bpool_t*)0) {
 		return FS_ERR_OK;
 	}
@@ -194,7 +204,7 @@ xfat_err_t xfat_bpool_write_sector(xfat_obj_t* obj, xfat_buf_t* buf, u8_t is_thr
 }
 
 xfat_err_t xfat_bpool_alloc(xfat_obj_t* obj, xfat_buf_t** buf, u32_t sector_no) {
-	xfat_bpool_t* pool = get_obj_bpool(obj);
+	xfat_bpool_t* pool = get_obj_bpool(obj, 1);
 	if (pool == (xfat_bpool_t*)0) {
 		return FS_ERR_OK;
 	}
@@ -233,7 +243,7 @@ xfat_err_t xfat_bpool_alloc(xfat_obj_t* obj, xfat_buf_t** buf, u32_t sector_no) 
 }
 
 xfat_err_t xfat_bpool_flush(xfat_obj_t* obj) {
-	xfat_bpool_t* pool = get_obj_bpool(obj);
+	xfat_bpool_t* pool = get_obj_bpool(obj, 1);
 	u32_t size = pool->size;
 
 	if (pool == (xfat_bpool_t*)0) {
@@ -265,7 +275,7 @@ xfat_err_t xfat_bpool_flush(xfat_obj_t* obj) {
 }
 
 xfat_err_t xfat_bpool_flush_sectors(xfat_obj_t* obj, u32_t start_sector, u32_t count) {
-	xfat_bpool_t* pool = get_obj_bpool(obj);
+	xfat_bpool_t* pool = get_obj_bpool(obj, 1);
 	u32_t size = pool->size;
 
 	if (pool == (xfat_bpool_t*)0) {
@@ -300,7 +310,7 @@ xfat_err_t xfat_bpool_flush_sectors(xfat_obj_t* obj, u32_t start_sector, u32_t c
 }
 
 xfat_err_t xfat_bpool_invalid_sectors(xfat_obj_t* obj, u32_t start_sector, u32_t count) {
-	xfat_bpool_t* pool = get_obj_bpool(obj);
+	xfat_bpool_t* pool = get_obj_bpool(obj, 1);
 	u32_t size = pool->size;
 
 	if (pool == (xfat_bpool_t*)0) {

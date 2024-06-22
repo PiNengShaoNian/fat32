@@ -140,8 +140,15 @@ xfat_err_t xfat_mount(xfat_t* xfat, xdisk_part_t* xdisk_part, const char* mount_
 	xdisk_t* xdisk = xdisk_part->disk;
 	xfat->disk_part = xdisk_part;
 	xfat_buf_t* buf = (xfat_buf_t*)0;
+
 	xfat_obj_init(to_obj(xfat), XFAT_OBJ_FAT);
-	xfat_err_t err = xfat_bpool_read_sector(to_obj(xfat), &buf, xdisk_part->start_sector);
+
+	xfat_err_t err = xfat_bpool_init(to_obj(xfat), 0, 0, 0);
+	if (err < 0) {
+		return err;
+	}
+
+	err = xfat_bpool_read_sector(to_obj(xfat), &buf, xdisk_part->start_sector);
 	if (err < 0) {
 		return err;
 	}
@@ -166,6 +173,21 @@ xfat_err_t xfat_mount(xfat_t* xfat, xdisk_part_t* xdisk_part, const char* mount_
 void xfat_unmount(xfat_t* xfat) {
 	xfat_bpool_flush(to_obj(xfat));
 	xfat_list_remove(xfat);
+}
+
+xfat_err_t xfat_set_buf(xfat_t* xfat, u8_t* buf, u32_t size) {
+	xdisk_part_t* part = xfat->disk_part;
+	xfat_err_t err = xfat_bpool_flush_sectors(to_obj(xfat), part->start_sector, part->total_sector);
+	if (err < 0) {
+		return err;
+	}
+
+	err = xfat_bpool_invalid_sectors(to_obj(xfat), part->start_sector, part->total_sector);
+	if (err < 0) {
+		return err;
+	}
+
+	return xfat_bpool_init(to_obj(xfat), xfat_get_disk(xfat)->sector_size, buf, size);
 }
 
 xfat_err_t xfat_fmt_ctrl_init(xfat_fmt_ctrl_t* ctrl) {
@@ -1060,7 +1082,13 @@ static xfat_err_t open_sub_file(xfat_t* xfat, u32_t dir_cluster, xfile_t* file, 
 	u32_t parent_cluster = dir_cluster;
 	u32_t parent_cluster_offset = 0;
 	u32_t file_start_cluster = 0;
-	xfat_obj_init(&file->obj, XFAT_OBJ_FILE);
+
+	xfat_obj_init(to_obj(file), XFAT_OBJ_FILE);
+
+	xfat_err_t err = xfat_bpool_init(&file->obj, 0, 0, 0);
+	if (err < 0) {
+		return err;
+	}
 
 	if ((path != 0) && (*path != '\0')) {
 		// a/b/c/d.txt
@@ -1153,6 +1181,23 @@ xfat_err_t xfile_open_sub(xfile_t* dir, const char* sub_path, xfile_t* sub_file)
 
 xfat_err_t xfile_close(xfile_t* file) {
 	return FS_ERR_OK;
+}
+
+xfat_err_t xfile_set_buf(xfile_t* file, u8_t* buf, u32_t size) {
+	xfat_t* xfat = file->xfat;
+	xdisk_part_t* part = xfat->disk_part;
+
+	xfat_err_t err = xfat_bpool_flush_sectors(to_obj(xfat), part->start_sector, part->total_sector);
+	if (err < 0) {
+		return err;
+	}
+
+	err = xfat_bpool_invalid_sectors(to_obj(xfat), part->start_sector, part->total_sector);
+	if (err < 0) {
+		return err;
+	}
+
+	return xfat_bpool_init(to_obj(file), xfat_get_disk(xfat)->sector_size, buf, size);
 }
 
 xfat_err_t xdir_first_file(xfile_t* file, xfileinfo_t* info) {

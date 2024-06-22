@@ -146,6 +146,8 @@ typedef struct _xfat_t {
 	u8_t* fat_buffer;
 	xdisk_part_t* disk_part;
 
+	xfat_bpool_t bpool;
+
 	struct _xfat_t* next;
 } xfat_t;
 
@@ -178,6 +180,8 @@ typedef struct _xfile_t {
 
 	u32_t dir_cluster;
 	u32_t dir_cluster_offset;
+
+	xfat_bpool_t bpool;
 } xfile_t;
 
 typedef enum _xfile_origin_t {
@@ -245,6 +249,7 @@ xfat_err_t get_next_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t* next_cluste
 xfat_err_t xfat_init(void);
 xfat_err_t xfat_mount(xfat_t* xfat, xdisk_part_t* part, const char* mount_name);
 void xfat_unmount(xfat_t* xfat);
+xfat_err_t xfat_set_buf(xfat_t* xfat, u8_t* buf, u32_t size);
 
 xfat_err_t xfat_fmt_ctrl_init(xfat_fmt_ctrl_t* ctrl);
 xfat_err_t xfat_format(xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl);
@@ -254,6 +259,7 @@ xfat_err_t read_cluster(xfat_t* xfat, u8_t* buffer, u32_t cluster, u32_t count);
 xfat_err_t xfile_open(xfile_t* file, const char* path);
 xfat_err_t xfile_open_sub(xfile_t* dir, const char* sub_path, xfile_t* sub_file);
 xfat_err_t xfile_close(xfile_t* file);
+xfat_err_t xfile_set_buf(xfile_t* file, u8_t* buf, u32_t size);
 
 xfat_err_t xdir_first_file(xfile_t* file, xfileinfo_t* info);
 xfat_err_t xdir_next_file(xfile_t* file, xfileinfo_t* info);
