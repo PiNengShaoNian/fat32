@@ -143,6 +143,11 @@ typedef struct _xfat_t {
 	u32_t cluster_byte_size; // 一个簇占几个字节
 	u32_t total_sectors; // 总扇区数
 
+	u32_t fsi_sector;
+	u32_t backup_sector;
+	u32_t cluster_next_free;
+	u32_t cluster_total_free;
+
 	u8_t* fat_buffer;
 	xdisk_part_t* disk_part;
 

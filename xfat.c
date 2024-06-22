@@ -118,6 +118,8 @@ static xfat_err_t parse_fat_header(xfat_t* xfat, dbr_t* dbr) {
 	xfat->total_sectors = dbr->bpb.BPB_TotSec32;
 	xfat->sec_per_cluster = dbr->bpb.BPB_SecPerClus;
 	xfat->cluster_byte_size = xfat->sec_per_cluster * dbr->bpb.BPB_BytsPerSec;
+	xfat->fsi_sector = dbr->fat32.BPB_FsInfo;
+	xfat->backup_sector = dbr->fat32.BPB_BkBootSec;
 
 	return FS_ERR_OK;
 }
@@ -132,6 +134,82 @@ xfat_err_t add_to_mount(xfat_t* xfat, const char* mount_name) {
 	}
 
 	xfat_list_add(xfat);
+	return FS_ERR_OK;
+}
+
+static xfat_err_t load_cluster_free_info(xfat_t* xfat) {
+	xfat_buf_t* buf;
+	xfat_err_t err = xfat_bpool_read_sector(to_obj(xfat), &buf, xfat->fsi_sector + xfat->disk_part->start_sector);
+	if (err < 0) {
+		return err;
+	}
+
+	fsinfo_t* fsinfo = (fsinfo_t*)(buf->buf);
+	if ((fsinfo->FSI_LoadSig == 0x41615252) &&
+		(fsinfo->FSI_StrucSig == 0x61417272) &&
+		(fsinfo->FSI_TrailSig == 0xAA550000) &&
+		(fsinfo->FSI_Next_Free != 0xFFFFFFFF) &&
+		(fsinfo->FSI_Free_Count != 0xFFFFFFFF)) {
+		xfat->cluster_next_free = fsinfo->FSI_Next_Free;
+		xfat->cluster_total_free = fsinfo->FSI_Free_Count;
+	}
+	else {
+		u32_t sector_size = xfat_get_disk(xfat)->sector_size;
+		u32_t start_sector = xfat->fat_start_sector;
+		u32_t sector_count = xfat->fat_tbl_sectors;
+		u32_t free_count = 0;
+		u32_t next_free = 0;
+
+		while (sector_count--) {
+			err = xfat_bpool_read_sector(to_obj(xfat), &buf, start_sector++);
+			if (err < 0) {
+				return err;
+			}
+
+			cluster32_t* cluster = (cluster32_t*)(buf->buf);
+			for (u32_t i = 0; i < sector_size; i += sizeof(cluster32_t), cluster++) {
+				if (cluster->s.next == CLUSTER_FREE) {
+					free_count++;
+					if (next_free == 0) {
+						next_free = i / sizeof(cluster32_t);
+					}
+				}
+			}
+		}
+
+		xfat->cluster_next_free = next_free;
+		xfat->cluster_total_free = free_count;
+	}
+
+	return FS_ERR_OK;
+}
+
+static xfat_err_t save_cluster_free_info(xdisk_t* disk, u32_t total_free, u32_t next_free,
+	u32_t fsinfo_sector, u32_t backup_sector) {
+	xfat_buf_t* buf = (xfat_buf_t*)0;
+	xfat_err_t err = xfat_bpool_alloc(to_obj(disk), &buf, fsinfo_sector);
+	if (err < 0) {
+		return err;
+	}
+
+	fsinfo_t* fsinfo = (fsinfo_t*)(buf->buf);
+	memset(fsinfo, 0, sizeof(fsinfo_t));
+	fsinfo->FSI_LoadSig = 0x41615252;
+	fsinfo->FSI_StrucSig = 0x61417272;
+	fsinfo->FSI_Free_Count = total_free;
+	fsinfo->FSI_Next_Free = next_free;
+	fsinfo->FSI_TrailSig = 0xAA550000;
+
+	err = xfat_bpool_write_sector(to_obj(disk), buf, 1);
+	if (err < 0) {
+		return err;
+	}
+	buf->sector_no += backup_sector;
+	err = xfat_bpool_write_sector(to_obj(disk), buf, 1);
+	if (err < 0) {
+		return err;
+	}
+
 	return FS_ERR_OK;
 }
 
@@ -158,6 +236,11 @@ xfat_err_t xfat_mount(xfat_t* xfat, xdisk_part_t* xdisk_part, const char* mount_
 		return err;
 	}
 
+	err = load_cluster_free_info(xfat);
+	if (err < 0) {
+		return err;
+	}
+
 	xfat->fat_buffer = (u8_t*)malloc(xfat->fat_tbl_sectors * xdisk->sector_size);
 	if (xfat->fat_buffer == NULL) {
 		return FS_ERR_MEM;
@@ -171,6 +254,8 @@ xfat_err_t xfat_mount(xfat_t* xfat, xdisk_part_t* xdisk_part, const char* mount_
 }
 
 void xfat_unmount(xfat_t* xfat) {
+	save_cluster_free_info(xfat_get_disk(xfat), xfat->cluster_total_free, xfat->cluster_next_free,
+		xfat->fsi_sector, xfat->backup_sector);
 	xfat_bpool_flush(to_obj(xfat));
 	xfat_list_remove(xfat);
 }
@@ -480,38 +565,9 @@ static xfat_err_t create_root_dir(xfat_fmt_info_t* fmt_info, xdisk_part_t* disk_
 }
 
 static xfat_err_t create_fsinfo(xfat_fmt_info_t* fmt_info, xdisk_part_t* xdisk_part, xfat_fmt_ctrl_t* ctrl) {
-	xfat_err_t err;
-	fsinfo_t* fsinfo;
-	xdisk_t* disk = xdisk_part->disk;
-	u32_t fsinfo_sector = xdisk_part->start_sector + fmt_info->fsinfo_sector;
-	xfat_buf_t* buf = (xfat_buf_t*)0;
-
-	err = xfat_bpool_alloc(to_obj(disk), &buf, fsinfo_sector);
-	if (err < 0) {
-		return err;
-	}
-	fsinfo = (fsinfo_t*)buf->buf;
-
-	memset(fsinfo, 0, sizeof(fsinfo_t));
-	fsinfo->FSI_LoadSig = 0x41615252;
-	fsinfo->FSI_StrucSig = 0x61417272;
-	fsinfo->FSI_Free_Count = 0xFFFFFFFF;
-	fsinfo->FSI_Next_Free = 0xFFFFFFFF;         // 根目录不一定从簇2开始
-	fsinfo->FSI_TrailSig = 0xAA550000;
-
-	err = xfat_bpool_write_sector(to_obj(disk), buf, 1);
-	if (err < 0) {
-		return err;
-	}
-
-	buf->sector_no += fmt_info->backup_sector;
-	// 同时在备份区中写一个备份
-	err = xfat_bpool_write_sector(to_obj(disk), buf, 0);
-	if (err < 0) {
-		return err;
-	}
-
-	return FS_ERR_OK;
+	u32_t total_free = fmt_info->fat_sectors * xdisk_part->disk->sector_size / sizeof(cluster32_t) - (2 + 1);
+	return save_cluster_free_info(xdisk_part->disk, total_free, 3,
+		fmt_info->fsinfo_sector, fmt_info->fsinfo_sector);
 }
 
 static xfat_err_t rewrite_partition_table(xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
