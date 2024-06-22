@@ -133,6 +133,7 @@ typedef struct _fsinfo_t {
 #define XFAT_NAME_LEN 16
 
 typedef struct _xfat_t {
+	xfat_obj_t obj;
 	char name[XFAT_NAME_LEN];
 	u32_t fat_start_sector; // Fat分配表的起始扇区
 	u32_t fat_tbl_nr; // Fat分配表的数量
@@ -165,6 +166,7 @@ typedef enum _xfile_type_t {
 #define XFILE_LOCATE_ALL 0xFF
 
 typedef struct _xfile_t {
+	xfat_obj_t obj;
 	xfat_t* xfat;
 	u32_t size;
 	u16_t attr;

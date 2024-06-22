@@ -1113,61 +1113,61 @@ int main(void) {
 		return -1;
 	}
 
-	//err = fat_dir_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fat_dir_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fat_file_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fat_file_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fs_open_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fs_open_test();
+	if (err) {
+		return err;
+	}
 
-	//err = dir_traverse_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = dir_traverse_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fs_read_test();
-	//if (err < 0) {
-	//	printf("read test failed\n");
-	//	return -1;
-	//}
+	err = fs_read_test();
+	if (err < 0) {
+		printf("read test failed\n");
+		return -1;
+	}
 
-	//err = fs_seek_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fs_seek_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fs_modify_file_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fs_modify_file_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fs_write_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fs_write_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fs_create_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fs_create_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fs_rmdir_tree_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fs_rmdir_tree_test();
+	if (err) {
+		return err;
+	}
 
-	//err = fs_resize_test();
-	//if (err) {
-	//	return err;
-	//}
+	err = fs_resize_test();
+	if (err) {
+		return err;
+	}
 
 	err = fs_format_test();
 	if (err) {

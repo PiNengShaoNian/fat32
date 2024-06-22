@@ -1,7 +1,18 @@
 #include "xfat_buf.h"
 #include "xdisk.h"
+#include "xfat.h"
 
 static xfat_bpool_t* get_obj_bpool(xfat_obj_t* obj) {
+	if (obj->type == XFAT_OBJ_FILE) {
+		xfile_t* file = to_type(obj, xfile_t);
+		obj = to_obj(file->xfat->disk_part->disk);
+	}
+
+	if (obj->type == XFAT_OBJ_FAT) {
+		xfat_t* xfat = to_type(obj, xfat_t);
+		obj = to_obj(xfat->disk_part->disk);
+	}
+
 	if (obj->type == XFAT_OBJ_DISK) {
 		xdisk_t* disk = to_type(obj, xdisk_t);
 		return &disk->bpool;
@@ -17,6 +28,10 @@ void xfat_buf_set_state(xfat_buf_t* buf, u32_t state) {
 
 static xdisk_t* get_obj_disk(xfat_obj_t* obj) {
 	switch (obj->type) {
+	case XFAT_OBJ_FILE:
+		return to_type(obj, xfile_t)->xfat->disk_part->disk;
+	case XFAT_OBJ_FAT:
+		return to_type(obj, xfat_t)->disk_part->disk;
 	case XFAT_OBJ_DISK:
 		return (xdisk_t*)obj;
 	}
@@ -44,7 +59,7 @@ static xfat_err_t bpool_moveto_first(xfat_bpool_t* pool, xfat_buf_t* buf) {
 }
 
 static xfat_err_t bpool_find_buf(xfat_bpool_t* pool, u32_t sector_no, xfat_buf_t** buf) {
-	if (pool->first == (xfat_err_t*)0) {
+	if (pool->first == (xfat_buf_t*)0) {
 		return FS_ERR_NO_BUFFER;
 	}
 

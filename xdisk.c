@@ -1,7 +1,5 @@
 #include "xdisk.h"
 
-u8_t temp_buffer[512];
-
 xfat_err_t xdisk_open(xdisk_t* disk, const char* name, xdisk_driver_t* driver,
 	void* init_data, u8_t* disk_buf, u32_t buf_size) {
 	xfat_err_t err;

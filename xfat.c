@@ -3,8 +3,6 @@
 #include <ctype.h>
 #include "xfat.h"
 
-extern u8_t temp_buffer[512];
-
 #define XFAT_MB(n) ((n) * 1024 * 1024LL)
 #define XFAT_GB(n) ((n) * 1024 * 1024 * 1024LL)
 #define XFAT_MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -138,15 +136,16 @@ xfat_err_t add_to_mount(xfat_t* xfat, const char* mount_name) {
 }
 
 xfat_err_t xfat_mount(xfat_t* xfat, xdisk_part_t* xdisk_part, const char* mount_name) {
-	dbr_t* dbr = (dbr_t*)temp_buffer;
+	dbr_t* dbr;
 	xdisk_t* xdisk = xdisk_part->disk;
 	xfat->disk_part = xdisk_part;
-
-	xfat_err_t err = xdisk_read_sector(xdisk, (u8_t*)dbr, xdisk_part->start_sector, 1);
+	xfat_buf_t* buf = (xfat_buf_t*)0;
+	xfat_obj_init(to_obj(xfat), XFAT_OBJ_FAT);
+	xfat_err_t err = xfat_bpool_read_sector(to_obj(xfat), &buf, xdisk_part->start_sector);
 	if (err < 0) {
 		return err;
 	}
-
+	dbr = (dbr_t*)buf->buf;
 	err = parse_fat_header(xfat, dbr);
 	if (err < 0) {
 		return err;
@@ -165,6 +164,7 @@ xfat_err_t xfat_mount(xfat_t* xfat, xdisk_part_t* xdisk_part, const char* mount_
 }
 
 void xfat_unmount(xfat_t* xfat) {
+	xfat_bpool_flush(to_obj(xfat));
 	xfat_list_remove(xfat);
 }
 
@@ -271,22 +271,37 @@ static u32_t get_default_cluster_size(xdisk_part_t* disk_part) {
 	return cluster_size;
 }
 
-static xfat_err_t create_dbr(dbr_t* dbr, xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
-	xdisk_t* disk = disk_part->disk;
-
+/**
+ * 根据分区及格式化参数，创建dbr头
+ * @param dbr dbr头结构
+ * @param xdisk_part 分区结构
+ * @param ctrl 格式化参数
+ * @return
+ */
+static xfat_err_t create_dbr(xdisk_part_t* xdisk_part, xfat_fmt_ctrl_t* ctrl, xfat_fmt_info_t* fmt_info) {
+	xfat_err_t err;
+	xdisk_t* disk = xdisk_part->disk;
 	u32_t cluster_size;
+	dbr_t* dbr;
+	xfat_buf_t* buf = (xfat_buf_t*)0;
+
 	// 计算簇大小，簇大小不能比扇区大小要小
 	if ((u32_t)ctrl->cluster_size < disk->sector_size) {
 		return FS_ERR_PARAM;
 	}
 	else if (ctrl->cluster_size == XFAT_CLUSTER_AUTO) {
-		cluster_size = get_default_cluster_size(disk_part);
+		cluster_size = get_default_cluster_size(xdisk_part);
 	}
 	else {
 		cluster_size = ctrl->cluster_size;
 	}
 
-	//memcpy(dbr, dbr_data, disk->sector_size);           // 拷贝模板数据，用于测试修改
+	err = xfat_bpool_alloc(to_obj(disk), &buf, xdisk_part->start_sector);
+	if (err < 0) {
+		return err;
+	}
+	dbr = (dbr_t*)buf->buf;
+
 	memset(dbr, 0, disk->sector_size);
 	dbr->bpb.BS_jmpBoot[0] = 0xEB;          // 这几个跳转代码是必须的
 	dbr->bpb.BS_jmpBoot[1] = 0x58;          // 不加win会识别为未格式化
@@ -302,18 +317,19 @@ static xfat_err_t create_dbr(dbr_t* dbr, xdisk_part_t* disk_part, xfat_fmt_ctrl_
 	dbr->bpb.BPB_FATSz16 = 0;               // FAT32未用
 	dbr->bpb.BPB_SecPerTrk = 0xFFFF;        // 不支持硬盘结构
 	dbr->bpb.BPB_NumHeads = 0xFFFF;         // 不支持硬盘结构
-	dbr->bpb.BPB_HiddSec = disk_part->relative_sector;    // 是否正确?
-	dbr->bpb.BPB_TotSec32 = disk_part->total_sector;
-	dbr->fat32.BPB_FATSz32 = cal_fat_tbl_sectors(dbr, disk_part, ctrl);
+	dbr->bpb.BPB_HiddSec = xdisk_part->relative_sector;    // 是否正确?
+	dbr->bpb.BPB_TotSec32 = xdisk_part->total_sector;
+	dbr->fat32.BPB_FATSz32 = cal_fat_tbl_sectors(dbr, xdisk_part, ctrl);
 	dbr->fat32.BPB_ExtFlags = 0;            // 固定值，实时镜像所有FAT表
 	dbr->fat32.BPB_FSVer = 0;               // 版本号，0
 	dbr->fat32.BPB_RootClus = 2;            // 固定为2，如果为坏簇怎么办？
-	dbr->fat32.BPB_FsInfo = 1;
+	dbr->fat32.BPB_FsInfo = 1;              // fsInfo的扇区号
+
 	memset(dbr->fat32.BPB_Reserved, 0, 12);
 	dbr->fat32.BS_DrvNum = 0x80;            // 固定为0
 	dbr->fat32.BS_Reserved1 = 0;
 	dbr->fat32.BS_BootSig = 0x29;           // 固定0x29
-	xfat_err_t err = create_vol_id_label(disk, dbr);
+	err = create_vol_id_label(disk, dbr);
 	if (err < 0) {
 		return err;
 	}
@@ -322,17 +338,27 @@ static xfat_err_t create_dbr(dbr_t* dbr, xdisk_part_t* disk_part, xfat_fmt_ctrl_
 	((u8_t*)dbr)[510] = 0x55;
 	((u8_t*)dbr)[511] = 0xAA;
 
-	err = xdisk_write_sector(disk, (u8_t*)dbr, disk_part->start_sector, 1);
+	err = xfat_bpool_write_sector(to_obj(disk), buf, 1);
 	if (err < 0) {
 		return err;
 	}
 
 	// 同时在备份区中写一个备份
-	err = xdisk_write_sector(disk, (u8_t*)dbr, disk_part->start_sector + dbr->fat32.BPB_BkBootSec, 1);
+	buf->sector_no = xdisk_part->start_sector + dbr->fat32.BPB_BkBootSec;
+	err = xfat_bpool_write_sector(to_obj(disk), buf, 0);
 	if (err < 0) {
 		return err;
 	}
 
+	// 提取格式化相关的参数信息，避免占用内部缓冲区
+	fmt_info->fat_count = dbr->bpb.BPB_NumFATs;
+	fmt_info->media = dbr->bpb.BPB_Media;
+	fmt_info->fat_sectors = dbr->fat32.BPB_FATSz32;
+	fmt_info->rsvd_sectors = dbr->bpb.BPB_RsvdSecCnt;
+	fmt_info->root_cluster = dbr->fat32.BPB_RootClus;
+	fmt_info->sec_per_cluster = dbr->bpb.BPB_SecPerClus;
+	fmt_info->backup_sector = dbr->fat32.BPB_BkBootSec;
+	fmt_info->fsinfo_sector = dbr->fat32.BPB_FsInfo;
 	return err;
 }
 
@@ -358,20 +384,25 @@ int xfat_is_fs_supported(xfs_type_t type) {
 static xfat_err_t create_fat_table(xfat_fmt_info_t* fmt_info, xdisk_part_t* xdisk_part, xfat_fmt_ctrl_t* ctrl) {
 	u32_t i, j;
 	xdisk_t* disk = xdisk_part->disk;
-	cluster32_t* fat_buffer = (cluster32_t*)temp_buffer;
 	xfat_err_t err = FS_ERR_OK;
 	u32_t fat_start_sector = fmt_info->rsvd_sectors + xdisk_part->start_sector;
+	xfat_buf_t* buf = (xfat_buf_t*)0;
 
+	err = xfat_bpool_alloc(to_obj(disk), &buf, fat_start_sector);
+	if (err < 0) {
+		return err;
+	}
+	cluster32_t* fat_buffer = (cluster32_t*)buf->buf;
 	// 逐个写多个FAT表，最好是挂载磁盘后查看下FAT表二进制内容
 	memset(fat_buffer, 0, disk->sector_size);
 	for (i = 0; i < fmt_info->fat_count; i++) {
-		u32_t start_sector = fat_start_sector + fmt_info->fat_sectors * i;
+		buf->sector_no = fat_start_sector + fmt_info->fat_sectors * i;
 
 		// 每个FAT表的前1、2簇已经被占用, 簇2分配给根目录，保留
 		fat_buffer[0].v = (u32_t)(0x0FFFFF00 | fmt_info->media);
 		fat_buffer[1].v = 0x0FFFFFFF;
 		fat_buffer[2].v = 0x0FFFFFFF;
-		err = xdisk_write_sector(disk, (u8_t*)fat_buffer, start_sector++, disk->sector_size);
+		err = xfat_bpool_write_sector(to_obj(disk), buf, 1);
 		if (err < 0) {
 			return err;
 		}
@@ -379,7 +410,8 @@ static xfat_err_t create_fat_table(xfat_fmt_info_t* fmt_info, xdisk_part_t* xdis
 		// 再写其余扇区的簇
 		fat_buffer[0].v = fat_buffer[1].v = fat_buffer[2].v = 0;
 		for (j = 1; j < fmt_info->fat_sectors; j++) {
-			err = xdisk_write_sector(disk, (u8_t*)fat_buffer, start_sector++, disk->sector_size);
+			++buf->sector_no;
+			err = xfat_bpool_write_sector(to_obj(disk), buf, 1);
 			if (err < 0) {
 				return err;
 			}
@@ -391,15 +423,21 @@ static xfat_err_t create_fat_table(xfat_fmt_info_t* fmt_info, xdisk_part_t* xdis
 static xfat_err_t diritem_init_default(diritem_t* dir_item, xdisk_t* disk, u8_t is_dir, const char* name, u32_t cluster);
 static xfat_err_t create_root_dir(xfat_fmt_info_t* fmt_info, xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
 	xfat_err_t err;
-	diritem_t* diritem = (diritem_t*)temp_buffer;
 	xdisk_t* disk = disk_part->disk;
-	memset(temp_buffer, 0, disk->sector_size);
+
+	xfat_buf_t* buf = (xfat_buf_t*)0;
+	diritem_t* diritem;
 	u32_t data_sector = fmt_info->rsvd_sectors +
 		(fmt_info->fat_count * fmt_info->fat_sectors) +
 		(fmt_info->root_cluster - 2) * fmt_info->sec_per_cluster;
-	u32_t sector = disk_part->start_sector + data_sector;
+
+	err = xfat_bpool_alloc(to_obj(disk), &buf, disk_part->start_sector + data_sector);
+	diritem = (diritem_t*)buf->buf;
+
+	memset(buf->buf, 0, disk->sector_size);
 	for (u32_t i = 0; i < fmt_info->sec_per_cluster; i++) {
-		err = xdisk_write_sector(disk, temp_buffer, sector + i, 1);
+		err = xfat_bpool_write_sector(to_obj(disk), buf, 1);
+		buf->sector_no++;
 		if (err < 0) {
 			return err;
 		}
@@ -409,7 +447,8 @@ static xfat_err_t create_root_dir(xfat_fmt_info_t* fmt_info, xdisk_part_t* disk_
 		diritem_init_default(diritem, disk, 0, ctrl->vol_name ? ctrl->vol_name : "DISK", 0);
 		diritem->DIR_Attr |= DIRITEM_ATTR_VOLUME_ID;
 
-		err = xdisk_write_sector(disk, temp_buffer, sector, 1);
+		buf->sector_no = disk_part->start_sector + data_sector;
+		err = xfat_bpool_write_sector(to_obj(disk), buf, 0);
 		if (err < 0) {
 			return err;
 		}
@@ -420,25 +459,32 @@ static xfat_err_t create_root_dir(xfat_fmt_info_t* fmt_info, xdisk_part_t* disk_
 
 static xfat_err_t create_fsinfo(xfat_fmt_info_t* fmt_info, xdisk_part_t* xdisk_part, xfat_fmt_ctrl_t* ctrl) {
 	xfat_err_t err;
-	fsinfo_t* fsinfo = (fsinfo_t*)temp_buffer;
+	fsinfo_t* fsinfo;
 	xdisk_t* disk = xdisk_part->disk;
 	u32_t fsinfo_sector = xdisk_part->start_sector + fmt_info->fsinfo_sector;
+	xfat_buf_t* buf = (xfat_buf_t*)0;
+
+	err = xfat_bpool_alloc(to_obj(disk), &buf, fsinfo_sector);
+	if (err < 0) {
+		return err;
+	}
+	fsinfo = (fsinfo_t*)buf->buf;
 
 	memset(fsinfo, 0, sizeof(fsinfo_t));
-
 	fsinfo->FSI_LoadSig = 0x41615252;
 	fsinfo->FSI_StrucSig = 0x61417272;
 	fsinfo->FSI_Free_Count = 0xFFFFFFFF;
 	fsinfo->FSI_Next_Free = 0xFFFFFFFF;         // 根目录不一定从簇2开始
 	fsinfo->FSI_TrailSig = 0xAA550000;
 
-	err = xdisk_write_sector(disk, (u8_t*)fsinfo, fsinfo_sector, 1);
+	err = xfat_bpool_write_sector(to_obj(disk), buf, 1);
 	if (err < 0) {
 		return err;
 	}
 
+	buf->sector_no += fmt_info->backup_sector;
 	// 同时在备份区中写一个备份
-	err = xdisk_write_sector(disk, (u8_t*)fsinfo, fsinfo_sector + fmt_info->backup_sector, 1);
+	err = xfat_bpool_write_sector(to_obj(disk), buf, 0);
 	if (err < 0) {
 		return err;
 	}
@@ -455,21 +501,11 @@ xfat_err_t xfat_format(xdisk_part_t* disk_part, xfat_fmt_ctrl_t* ctrl) {
 		return FS_ERR_INVALID_FS;
 	}
 
-	dbr_t* dbr = (dbr_t*)temp_buffer;
-	u32_t err = create_dbr(dbr, disk_part, ctrl);
+	xfat_fmt_info_t fmt_info;
+	u32_t err = create_dbr(disk_part, ctrl, &fmt_info);
 	if (err < 0) {
 		return err;
 	}
-
-	xfat_fmt_info_t fmt_info;
-	fmt_info.fat_count = dbr->bpb.BPB_NumFATs;
-	fmt_info.media = dbr->bpb.BPB_Media;
-	fmt_info.fat_sectors = dbr->fat32.BPB_FATSz32;
-	fmt_info.rsvd_sectors = dbr->bpb.BPB_RsvdSecCnt;
-	fmt_info.root_cluster = dbr->fat32.BPB_RootClus;
-	fmt_info.sec_per_cluster = dbr->bpb.BPB_SecPerClus;
-	fmt_info.backup_sector = dbr->fat32.BPB_BkBootSec;
-	fmt_info.fsinfo_sector = dbr->fat32.BPB_FsInfo;
 
 	err = create_fat_table(&fmt_info, disk_part, ctrl);
 	if (err < 0) {
@@ -568,7 +604,7 @@ xfat_err_t move_cluster_pos(xfat_t* xfat, u32_t curr_cluster, u32_t curr_offset,
 
 xfat_err_t get_next_diritem(xfat_t* xfat, u8_t type, u32_t start_cluster,
 	u32_t start_offset, u32_t* found_cluster, u32_t* found_offset,
-	u32_t* next_cluster, u32_t* next_offset, u8_t* temp_buffer, diritem_t** diritem) {
+	u32_t* next_cluster, u32_t* next_offset, xfat_buf_t** buf, diritem_t** diritem) {
 	diritem_t* r_diritem;
 	while (is_cluster_valid(start_cluster)) {
 		xfat_err_t err = move_cluster_pos(xfat, start_cluster, start_offset, sizeof(diritem_t), next_cluster, next_offset);
@@ -578,12 +614,12 @@ xfat_err_t get_next_diritem(xfat_t* xfat, u8_t type, u32_t start_cluster,
 
 		u32_t sector_offset = to_sector_offset(xfat_get_disk(xfat), start_offset);
 		u32_t curr_sector = to_phy_sector(xfat, start_cluster, start_offset);
-		err = xdisk_read_sector(xfat_get_disk(xfat), temp_buffer, curr_sector, 1);
+		err = xfat_bpool_read_sector(to_obj(xfat), buf, curr_sector);
 		if (err < 0) {
 			return err;
 		}
 
-		r_diritem = (diritem_t*)(temp_buffer + sector_offset);
+		r_diritem = (diritem_t*)((*buf)->buf + sector_offset);
 		switch (r_diritem->DIR_Name[0]) {
 		case DIRITEM_NAME_END:
 			if (type & DIRITEM_GET_END) {
@@ -791,9 +827,16 @@ static void set_diritem_cluster(diritem_t* item, u32_t cluster) {
 static xfat_err_t erase_cluster(xfat_t* xfat, u32_t cluster, u32_t erase_state) {
 	u32_t sector = cluster_first_sector(xfat, cluster);
 	xdisk_t* disk = xfat_get_disk(xfat);
-	memset(temp_buffer, erase_state, disk->sector_size);
+	xfat_buf_t* buf = (xfat_buf_t*)0;
+	xfat_err_t err = xfat_bpool_alloc(to_obj(xfat), &buf, sector);
+	if (err < 0) {
+		return err;
+	}
+
+	memset(buf->buf, erase_state, disk->sector_size);
 	for (u32_t i = 0; i < xfat->sec_per_cluster; i++) {
-		xfat_err_t err = xdisk_write_sector(disk, temp_buffer, sector + i, 1);
+		xfat_err_t err = xfat_bpool_write_sector(to_obj(xfat), buf, 1);
+		buf->sector_no++;
 		if (err < 0) {
 			return err;
 		}
@@ -962,17 +1005,17 @@ static xfat_err_t locate_file_dir_item(xfat_t* xfat, u8_t locate_type, u32_t* di
 	u32_t initial_sector = to_sector(xdisk, *cluster_offset);
 	u32_t initial_offset = to_sector_offset(xdisk, *cluster_offset);
 	u32_t move_bytes = 0;
-
+	xfat_buf_t* buf = (xfat_buf_t*)0;
 	do {
 		u32_t start_sector = cluster_first_sector(xfat, curr_cluster);
 		for (u32_t i = initial_sector; i < xfat->sec_per_cluster; i++) {
-			xfat_err_t err = xdisk_read_sector(xdisk, temp_buffer, start_sector + i, 1);
+			xfat_err_t err = xfat_bpool_read_sector(to_obj(xfat), &buf, start_sector + i);
 			if (err < 0) {
 				return err;
 			}
 
 			for (int j = initial_offset / sizeof(diritem_t); j < xdisk->sector_size / sizeof(diritem_t); j++) {
-				diritem_t* dir_item = ((diritem_t*)temp_buffer) + j;
+				diritem_t* dir_item = ((diritem_t*)buf->buf) + j;
 				if (dir_item->DIR_Name[0] == DIRITEM_NAME_END) {
 					return FS_ERR_EOF;
 				}
@@ -1017,6 +1060,8 @@ static xfat_err_t open_sub_file(xfat_t* xfat, u32_t dir_cluster, xfile_t* file, 
 	u32_t parent_cluster = dir_cluster;
 	u32_t parent_cluster_offset = 0;
 	u32_t file_start_cluster = 0;
+	xfat_obj_init(&file->obj, XFAT_OBJ_FILE);
+
 	if ((path != 0) && (*path != '\0')) {
 		// a/b/c/d.txt
 		const char* curr_path = path;
@@ -1235,12 +1280,13 @@ static xfat_err_t create_sub_file(xfat_t* xfat, u8_t is_dir, u32_t parent_cluste
 	u32_t free_item_cluster = CLUSTER_INVALID;
 	u32_t free_item_offset = 0;
 	u32_t file_diritem_sector;
+	xfat_buf_t* buf = (xfat_buf_t*)0;
 
 	do {
 		diritem_t* diritem = (diritem_t*)0;
 
 		xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_ALL, curr_cluster, curr_offset, &found_cluster,
-			&found_offset, &next_cluster, &next_offset, temp_buffer, &diritem);
+			&found_offset, &next_cluster, &next_offset, &buf, &diritem);
 		if (err < 0) {
 			return err;
 		}
@@ -1306,12 +1352,12 @@ static xfat_err_t create_sub_file(xfat_t* xfat, u8_t is_dir, u32_t parent_cluste
 
 		// 读取新建簇中的第一个扇区，获取target_item
 		file_diritem_sector = cluster_first_sector(xfat, parent_diritem_cluster);
-		err = xdisk_read_sector(disk, temp_buffer, file_diritem_sector, 1);
+		err = xfat_bpool_read_sector(to_obj(xfat), &buf, file_diritem_sector);
 		if (err < 0) {
 			return err;
 		}
 
-		target_item = (diritem_t*)temp_buffer;
+		target_item = (diritem_t*)buf->buf;
 	}
 	else {
 		u32_t diritem_offset;
@@ -1324,12 +1370,12 @@ static xfat_err_t create_sub_file(xfat_t* xfat, u8_t is_dir, u32_t parent_cluste
 			diritem_offset = found_offset;
 		}
 
-		xfat_err_t err = xdisk_read_sector(disk, temp_buffer, file_diritem_sector, 1);
+		xfat_err_t err = xfat_bpool_read_sector(to_obj(xfat), &buf, file_diritem_sector);
 		if (err < 0) {
 			return err;
 		}
 
-		target_item = (diritem_t*)(temp_buffer + to_sector_offset(disk, diritem_offset));
+		target_item = (diritem_t*)(buf->buf + to_sector_offset(disk, diritem_offset));
 	}
 
 	xfat_err_t err = diritem_init_default(target_item, disk, is_dir, child_name, file_first_cluster);
@@ -1337,7 +1383,7 @@ static xfat_err_t create_sub_file(xfat_t* xfat, u8_t is_dir, u32_t parent_cluste
 		return err;
 	}
 
-	err = xdisk_write_sector(disk, temp_buffer, file_diritem_sector, 1);
+	err = xfat_bpool_write_sector(to_obj(xfat), buf, 0);
 	if (err < 0) {
 		return err;
 	}
@@ -1435,6 +1481,7 @@ xfat_err_t xfile_rmfile(const char* path) {
 	u32_t next_cluster, next_offset;
 	u32_t found_cluster, found_offset;
 	const char* curr_path;
+	xfat_buf_t* buf = (xfat_buf_t*)0;
 
 	xfat_t* xfat = xfat_find_by_name(path);
 	if (xfat == (xfat_t*)0) {
@@ -1448,7 +1495,7 @@ xfat_err_t xfile_rmfile(const char* path) {
 	for (curr_path = path; curr_path != '\0'; curr_path = get_child_path(curr_path)) {
 		do {
 			xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_USED, curr_cluster, curr_offset,
-				&found_cluster, &found_offset, &next_cluster, &next_offset, temp_buffer, &diritem);
+				&found_cluster, &found_offset, &next_cluster, &next_offset, &buf, &diritem);
 			if (err < 0) {
 				return err;
 			}
@@ -1479,7 +1526,7 @@ xfat_err_t xfile_rmfile(const char* path) {
 		u32_t dir_sector = to_phy_sector(xfat, found_cluster, found_offset);
 		diritem->DIR_Name[0] = DIRITEM_NAME_FREE;
 
-		xfat_err_t err = xdisk_write_sector(xfat_get_disk(xfat), temp_buffer, dir_sector, 1);
+		xfat_err_t err = xfat_bpool_write_sector(to_obj(xfat), buf, 0);
 		if (err < 0) {
 			return err;
 		}
@@ -1498,13 +1545,13 @@ static xfat_err_t dir_has_child(xfat_t* xfat, u32_t dir_cluster, int* has_child)
 	u32_t curr_cluster, curr_offset;
 	u32_t next_cluster, next_offset;
 	u32_t found_cluster, found_offset;
-
+	xfat_buf_t* buf = (xfat_buf_t*)0;
 	curr_cluster = dir_cluster;
 	curr_offset = 0;
 	*has_child = 0;
 	do {
 		xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_USED, curr_cluster, curr_offset,
-			&found_cluster, &found_offset, &next_cluster, &next_offset, temp_buffer, &diritem);
+			&found_cluster, &found_offset, &next_cluster, &next_offset, &buf, &diritem);
 		if (err < 0) {
 			return err;
 		}
@@ -1531,6 +1578,7 @@ xfat_err_t xfile_rmdir(const char* path) {
 	u32_t next_cluster, next_offset;
 	u32_t found_cluster, found_offset;
 	const char* curr_path;
+	xfat_buf_t* buf = (xfat_buf_t*)0;
 
 	xfat_t* xfat = xfat_find_by_name(path);
 	if (xfat == (xfat_t*)0) {
@@ -1544,7 +1592,7 @@ xfat_err_t xfile_rmdir(const char* path) {
 	for (curr_path = path; curr_path != '\0'; curr_path = get_child_path(curr_path)) {
 		do {
 			xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_USED, curr_cluster, curr_offset,
-				&found_cluster, &found_offset, &next_cluster, &next_offset, temp_buffer, &diritem);
+				&found_cluster, &found_offset, &next_cluster, &next_offset, &buf, &diritem);
 			if (err < 0) {
 				return err;
 			}
@@ -1583,14 +1631,14 @@ xfat_err_t xfile_rmdir(const char* path) {
 		}
 
 		u32_t dir_sector = to_phy_sector(xfat, found_cluster, found_offset);
-		err = xdisk_read_sector(xfat_get_disk(xfat), temp_buffer, dir_sector, 1);
+		err = xfat_bpool_read_sector(to_obj(xfat), &buf, dir_sector);
 		if (err < 0) {
 			return err;
 		}
-		diritem = (diritem_t*)(temp_buffer + to_sector_offset(xfat_get_disk(xfat), found_offset));
+		diritem = (diritem_t*)(buf->buf + to_sector_offset(xfat_get_disk(xfat), found_offset));
 		diritem->DIR_Name[0] = DIRITEM_NAME_FREE;
 
-		err = xdisk_write_sector(xfat_get_disk(xfat), temp_buffer, dir_sector, 1);
+		err = xfat_bpool_write_sector(to_obj(xfat), buf, 0);
 		if (err < 0) {
 			return err;
 		}
@@ -1612,10 +1660,11 @@ static xfat_err_t rmdir_all_children(xfat_t* xfat, u32_t parent_cluster) {
 	u32_t next_offset;
 	u32_t found_cluster;
 	u32_t found_offset;
+	xfat_buf_t* buf = (xfat_buf_t*)0;
 
 	do {
 		xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_USED, curr_cluster, curr_offset,
-			&found_cluster, &found_offset, &next_cluster, &next_offset, temp_buffer, &diritem);
+			&found_cluster, &found_offset, &next_cluster, &next_offset, &buf, &diritem);
 		if (err < 0) {
 			return err;
 		}
@@ -1633,7 +1682,7 @@ static xfat_err_t rmdir_all_children(xfat_t* xfat, u32_t parent_cluster) {
 			u32_t dir_sector = to_phy_sector(xfat, found_cluster, found_offset);
 
 			diritem->DIR_Name[0] = DIRITEM_NAME_FREE;
-			err = xdisk_write_sector(xfat_get_disk(xfat), temp_buffer, dir_sector, 1);
+			err = xfat_bpool_write_sector(to_obj(xfat), buf, 0);
 			if (err < 0) {
 				return err;
 			}
@@ -1664,6 +1713,7 @@ xfat_err_t xfile_rmdir_tree(const char* path) {
 	u32_t next_cluster, next_offset;
 	u32_t found_cluster, found_offset;
 	const char* curr_path;
+	xfat_buf_t* buf = (xfat_buf_t*)0;
 
 	xfat_t* xfat = xfat_find_by_name(path);
 	if (xfat == (xfat_t*)0) {
@@ -1677,7 +1727,7 @@ xfat_err_t xfile_rmdir_tree(const char* path) {
 	for (curr_path = path; curr_path != '\0'; curr_path = get_child_path(curr_path)) {
 		do {
 			xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_USED, curr_cluster, curr_offset,
-				&found_cluster, &found_offset, &next_cluster, &next_offset, temp_buffer, &diritem);
+				&found_cluster, &found_offset, &next_cluster, &next_offset, &buf, &diritem);
 			if (err < 0) {
 				return err;
 			}
@@ -1709,7 +1759,7 @@ xfat_err_t xfile_rmdir_tree(const char* path) {
 
 		u32_t dir_sector = to_phy_sector(xfat, found_cluster, found_offset);
 		diritem->DIR_Name[0] = DIRITEM_NAME_FREE;
-		xfat_err_t err = xdisk_write_sector(xfat_get_disk(xfat), temp_buffer, dir_sector, 1);
+		xfat_err_t err = xfat_bpool_write_sector(to_obj(xfat), buf, 0);
 		if (err < 0) {
 			return err;
 		}
@@ -1764,6 +1814,7 @@ xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count
 		// 1) 如果读取的左边界不是扇区对齐的，先读取玩第一部分保证其左边界扇区对齐
 		// 2) 如果左边界是扇区对齐的，但是读取的内容大小小于一个扇区则也可以走这个逻辑
 		if ((sector_offset != 0) || (!sector_offset && (bytes_to_read < disk->sector_size))) {
+
 			sector_count = 1;
 			curr_read_bytes = bytes_to_read;
 
@@ -1774,13 +1825,14 @@ xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count
 				}
 			}
 
-			err = xdisk_read_sector(disk, temp_buffer, start_sector, 1);
+			xfat_buf_t* buf = (xfat_buf_t*)0;
+			err = xfat_bpool_read_sector(to_obj(file), &buf, start_sector);
 			if (err < 0) {
 				file->err = err;
 				return 0;
 			}
 
-			memcpy(read_buffer, temp_buffer + sector_offset, curr_read_bytes);
+			memcpy(read_buffer, buf->buf + sector_offset, curr_read_bytes);
 			read_buffer += curr_read_bytes;
 			bytes_to_read -= curr_read_bytes;
 		}
@@ -1815,17 +1867,17 @@ static xfat_err_t update_file_size(xfile_t* file, xfile_size_t size) {
 	xdisk_t* disk = file_get_disk(file);
 	u32_t sector = to_phy_sector(file->xfat, file->dir_cluster, file->dir_cluster_offset);
 	u32_t offset = to_sector_offset(disk, file->dir_cluster_offset);
-
-	xfat_err_t err = xdisk_read_sector(disk, temp_buffer, sector, 1);
+	xfat_buf_t* buf = (xfat_buf_t*)0;
+	xfat_err_t err = xfat_bpool_read_sector(to_obj(file), &buf, sector);
 	if (err < 0) {
 		file->err = err;
 		return err;
 	}
 
-	diritem_t* diritem = (diritem_t*)(temp_buffer + offset);
+	diritem_t* diritem = (diritem_t*)(buf->buf + offset);
 	diritem->DIR_FileSize = size;
 	set_diritem_cluster(diritem, file->start_cluster);
-	err = xdisk_write_sector(disk, temp_buffer, sector, 1);
+	err = xfat_bpool_write_sector(to_obj(file), buf, 0);
 	if (err < 0) {
 		file->err = err;
 		return err;
@@ -1937,14 +1989,15 @@ xfile_size_t xfile_write(void* buffer, xfile_size_t elem_size, xfile_size_t coun
 				}
 			}
 
-			err = xdisk_read_sector(disk, temp_buffer, start_sector, 1);
+			xfat_buf_t* buf = (xfat_buf_t*)0;
+			err = xfat_bpool_read_sector(to_obj(file), &buf, start_sector);
 			if (err < 0) {
 				file->err = err;
 				return 0;
 			}
 
-			memcpy(temp_buffer + sector_offset, write_buffer, curr_write_bytes);
-			err = xdisk_write_sector(disk, temp_buffer, start_sector, 1);
+			memcpy(buf->buf + sector_offset, write_buffer, curr_write_bytes);
+			err = xfat_bpool_write_sector(to_obj(file), buf, 0);
 			if (err < 0) {
 				file->err = err;
 				return 0;
@@ -2128,10 +2181,11 @@ xfat_err_t xfile_rename(const char* path, const char* new_name) {
 	curr_cluster = xfat->root_cluster;
 	curr_offset = 0;
 	const char* curr_path = path;
+	xfat_buf_t* buf = (xfat_buf_t*)0;
 	for (; curr_path && *curr_path != '\0'; curr_path = get_child_path(curr_path)) {
 		do {
 			xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_USED, curr_cluster, curr_offset,
-				&found_cluster, &found_offset, &next_cluster, &next_offset, temp_buffer, &diritem);
+				&found_cluster, &found_offset, &next_cluster, &next_offset, &buf, &diritem);
 			if (err < 0) {
 				return err;
 			}
@@ -2159,7 +2213,7 @@ xfat_err_t xfile_rename(const char* path, const char* new_name) {
 		to_sfn((char*)diritem->DIR_Name, new_name);
 		diritem->DIR_NTRes &= ~DIRITEM_NTRES_CASE_MASK;
 		diritem->DIR_NTRes |= get_sfn_case_cfg(new_name);
-		return xdisk_write_sector(xfat_get_disk(xfat), temp_buffer, dir_sector, 1);
+		return xfat_bpool_write_sector(to_obj(xfat), buf, 0);
 	}
 
 	return FS_ERR_OK;
@@ -2189,10 +2243,11 @@ static xfat_err_t set_file_time(const char* path, stime_type_t time_type, xfile_
 
 	curr_cluster = xfat->root_cluster;
 	curr_offset = 0;
+	xfat_buf_t* buf = (xfat_buf_t*)0;
 	for (curr_path = path; curr_path != '\0'; curr_path = get_child_path(curr_path)) {
 		do {
 			xfat_err_t err = get_next_diritem(xfat, DIRITEM_GET_USED, curr_cluster, curr_offset,
-				&found_cluster, &found_offset, &next_cluster, &next_offset, temp_buffer, &diritem);
+				&found_cluster, &found_offset, &next_cluster, &next_offset, &buf, &diritem);
 			if (err < 0) {
 				return err;
 			}
@@ -2245,7 +2300,7 @@ static xfat_err_t set_file_time(const char* path, stime_type_t time_type, xfile_
 			break;
 		}
 
-		return xdisk_write_sector(xfat_get_disk(xfat), temp_buffer, dir_sector, 1);
+		return xfat_bpool_write_sector(to_obj(xfat), buf, 0);
 	}
 
 	return FS_ERR_OK;
