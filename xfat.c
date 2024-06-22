@@ -1842,6 +1842,10 @@ xfile_size_t xfile_read(void* buffer, xfile_size_t elem_size, xfile_size_t count
 				sector_count = file->xfat->sec_per_cluster - cluster_sector;
 			}
 
+			err = xfat_bpool_flush_sectors(to_obj(file), start_sector, count);
+			if (err < 0) {
+				return err;
+			}
 			err = xdisk_read_sector(disk, read_buffer, start_sector, sector_count);
 			if (err != FS_ERR_OK) {
 				file->err = err;
@@ -2012,6 +2016,10 @@ xfile_size_t xfile_write(void* buffer, xfile_size_t elem_size, xfile_size_t coun
 				sector_count = file->xfat->sec_per_cluster - cluster_sector;
 			}
 
+			err = xfat_bpool_invalid_sectors(to_obj(file), start_sector, sector_count);
+			if (err < 0) {
+				return err;
+			}
 			err = xdisk_write_sector(disk, write_buffer, start_sector, sector_count);
 			if (err != FS_ERR_OK) {
 				file->err = err;

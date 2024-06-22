@@ -263,3 +263,69 @@ xfat_err_t xfat_bpool_flush(xfat_obj_t* obj) {
 
 	return FS_ERR_OK;
 }
+
+xfat_err_t xfat_bpool_flush_sectors(xfat_obj_t* obj, u32_t start_sector, u32_t count) {
+	xfat_bpool_t* pool = get_obj_bpool(obj);
+	u32_t size = pool->size;
+
+	if (pool == (xfat_bpool_t*)0) {
+		return FS_ERR_PARAM;
+	}
+
+	u32_t end_sector = start_sector + count - 1;
+	xfat_buf_t* cur_buf = pool->first;
+	while (size--) {
+		switch (xfat_buf_state(cur_buf)) {
+		case XFAT_BUF_STATE_FREE:
+		case XFAT_BUF_STATE_CLEAN:
+		{
+			break;
+		}
+		case XFAT_BUF_STATE_DIRTY:
+		{
+			if ((cur_buf->sector_no >= start_sector) && (cur_buf->sector_no <= end_sector)) {
+				xfat_err_t err = xdisk_write_sector(get_obj_disk(obj), cur_buf->buf, cur_buf->sector_no, 1);
+				if (err < 0) {
+					return err;
+				}
+				xfat_buf_set_state(cur_buf, XFAT_BUF_STATE_CLEAN);
+			}
+			break;
+		}
+		}
+		cur_buf = cur_buf->next;
+	}
+
+	return FS_ERR_OK;
+}
+
+xfat_err_t xfat_bpool_invalid_sectors(xfat_obj_t* obj, u32_t start_sector, u32_t count) {
+	xfat_bpool_t* pool = get_obj_bpool(obj);
+	u32_t size = pool->size;
+
+	if (pool == (xfat_bpool_t*)0) {
+		return FS_ERR_PARAM;
+	}
+
+	u32_t end_sector = start_sector + count - 1;
+	xfat_buf_t* cur_buf = pool->first;
+	while (size--) {
+		switch (xfat_buf_state(cur_buf)) {
+		case XFAT_BUF_STATE_FREE:
+		case XFAT_BUF_STATE_CLEAN:
+		{
+			break;
+		}
+		case XFAT_BUF_STATE_DIRTY:
+		{
+			if ((cur_buf->sector_no >= start_sector) && (cur_buf->sector_no <= end_sector)) {
+				xfat_buf_set_state(cur_buf, XFAT_BUF_STATE_FREE);
+			}
+			break;
+		}
+		}
+		cur_buf = cur_buf->next;
+	}
+
+	return FS_ERR_OK;
+}
