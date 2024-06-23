@@ -19,6 +19,17 @@
 #define to_cluster(xfat, pos) ((pos) / (xfat)->cluster_byte_size)
 #define to_cluster_count(xfat, size) ((size) ? (to_cluster(xfat, size) + 1) : 0)
 
+
+u32_t to_fat_sector(xfat_t* xfat, u32_t cluster) {
+	u32_t sector_size = xfat_get_disk(xfat)->sector_size;
+	return cluster * sizeof(cluster32_t) / sector_size + xfat->fat_start_sector;
+}
+
+u32_t to_fat_offset(xfat_t* xfat, u32_t cluster) {
+	u32_t sector_size = xfat_get_disk(xfat)->sector_size;
+	return cluster * sizeof(cluster32_t) % sector_size;
+}
+
 static xfat_t* xfat_list;
 
 void xfat_list_init(void) {
@@ -740,8 +751,14 @@ int is_cluster_valid(u32_t cluster) {
 
 xfat_err_t get_next_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t* next_cluster) {
 	if (is_cluster_valid(curr_cluster)) {
-		cluster32_t* cluster32_buf = (cluster32_t*)xfat->fat_buffer;
-		*next_cluster = cluster32_buf[curr_cluster].s.next;
+		xfat_buf_t* buf;
+		xfat_err_t err = xfat_bpool_read_sector(to_obj(xfat), &buf, to_fat_sector(xfat, curr_cluster));
+		if (err < 0) {
+			return err;
+		}
+
+		cluster32_t* cluster32_buf = (cluster32_t*)(buf->buf + to_fat_offset(xfat, curr_cluster));
+		*next_cluster = cluster32_buf->s.next;
 	}
 	else {
 		*next_cluster = CLUSTER_INVALID;
