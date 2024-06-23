@@ -148,7 +148,6 @@ typedef struct _xfat_t {
 	u32_t cluster_next_free;
 	u32_t cluster_total_free;
 
-	u8_t* fat_buffer;
 	xdisk_part_t* disk_part;
 
 	xfat_bpool_t bpool;

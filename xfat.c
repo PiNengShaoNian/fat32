@@ -252,15 +252,6 @@ xfat_err_t xfat_mount(xfat_t* xfat, xdisk_part_t* xdisk_part, const char* mount_
 		return err;
 	}
 
-	xfat->fat_buffer = (u8_t*)malloc(xfat->fat_tbl_sectors * xdisk->sector_size);
-	if (xfat->fat_buffer == NULL) {
-		return FS_ERR_MEM;
-	}
-	err = xdisk_read_sector(xdisk, (u8_t*)xfat->fat_buffer, xfat->fat_start_sector, xfat->fat_tbl_sectors);
-	if (err < 0) {
-		return err;
-	}
-
 	return add_to_mount(xfat, mount_name);
 }
 
@@ -645,33 +636,38 @@ xfat_err_t read_cluster(xfat_t* xfat, u8_t* buffer, u32_t cluster, u32_t count) 
 }
 
 static xfat_err_t destory_cluster_chain(xfat_t* xfat, u32_t cluster) {
-	xdisk_t* disk = xfat_get_disk(xfat);
 	u32_t curr_cluster = cluster;
-	cluster32_t* cluster32_buf;
-	u32_t next_cluster;
-	u32_t write_back = 0;
 
 	while (is_cluster_valid(curr_cluster)) {
-		xfat_err_t err = get_next_cluster(xfat, curr_cluster, &next_cluster);
+		xfat_buf_t* buf = (xfat_buf_t*)0;
+		xfat_err_t err = xfat_bpool_read_sector(to_obj(xfat), &buf, to_fat_sector(xfat, curr_cluster));
+		if (err < 0) {
+			return err;
+		}
+		cluster32_t* cluster32_buf = (cluster32_t*)(buf->buf + to_fat_offset(xfat, curr_cluster));
+		u32_t next_cluster = cluster32_buf->s.next;
+		cluster32_buf->s.next = CLUSTER_FREE;
+		err = xfat_bpool_write_sector(to_obj(xfat), buf, 1);
 		if (err < 0) {
 			return err;
 		}
 
-		cluster32_buf = (cluster32_t*)xfat->fat_buffer;
-		cluster32_buf[curr_cluster].s.next = CLUSTER_FREE;
-		curr_cluster = next_cluster;
-		write_back = 1;
-	}
-
-	if (write_back) {
 		for (u32_t i = 0; i < xfat->fat_tbl_nr; i++) {
-			u32_t start_sector = xfat->fat_start_sector + xfat->fat_tbl_sectors * i;
-			xfat_err_t err = xdisk_write_sector(disk, (u8_t*)xfat->fat_buffer, start_sector, xfat->fat_tbl_sectors);
+			buf->sector_no += xfat->fat_tbl_sectors;
+			err = xfat_bpool_write_sector(to_obj(xfat), buf, 1);
 			if (err < 0) {
 				return err;
 			}
 		}
+
+		curr_cluster = next_cluster;
+		xfat->cluster_total_free++;
 	}
+
+	if (!is_cluster_valid(xfat->cluster_next_free)) {
+		xfat->cluster_next_free = cluster;
+	}
+
 	return FS_ERR_OK;
 }
 
@@ -939,60 +935,92 @@ static xfat_err_t erase_cluster(xfat_t* xfat, u32_t cluster, u32_t erase_state) 
 	return FS_ERR_OK;
 }
 
-static xfat_err_t allocate_free_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t count,
-	u32_t* r_start_cluster, u32_t* r_allocated_count, u8_t en_erase, u8_t erase_data) {
-	xdisk_t* disk = xfat_get_disk(xfat);
-	u32_t cluster_count = xfat->fat_tbl_sectors * disk->sector_size / sizeof(cluster32_t);
-	u32_t allocated_count = 0;
-	u32_t pre_cluster = curr_cluster;
-	cluster32_t* cluster32_buf = (cluster32_t*)xfat->fat_buffer;
-	u32_t start_cluster = 0;
-	for (u32_t i = 2; (i < cluster_count) && (allocated_count < count); i++) {
-		if (cluster32_buf[i].s.next == 0) {
-			if (is_cluster_valid(pre_cluster)) {
-				cluster32_buf[pre_cluster].s.next = i;
-			}
+static xfat_err_t put_next_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t next_cluster) {
+	if (is_cluster_valid(curr_cluster)) {
+		xfat_buf_t* buf;
+		xfat_err_t err = xfat_bpool_read_sector(to_obj(xfat), &buf, to_fat_sector(xfat, curr_cluster));
+		if (err < 0) return err;
 
-			pre_cluster = i;
+		cluster32_t* cluster32_buf = (cluster32_t*)(buf->buf + to_fat_offset(xfat, curr_cluster));
+		cluster32_buf->s.next = next_cluster;
 
-			if (++allocated_count == 1) {
-				start_cluster = i;
-			}
+		err = xfat_bpool_write_sector(to_obj(xfat), buf, 1);
+		if (err < 0) return err;
 
-			if (allocated_count >= count) {
-				break;
-			}
+		for (u32_t i = 1; i < xfat->fat_tbl_nr; i++) {
+			buf->sector_no += xfat->fat_tbl_sectors;
+			err = xfat_bpool_write_sector(to_obj(xfat), buf, 1);
+			if (err < 0) return err;
 		}
 	}
 
-	if (allocated_count) {
-		cluster32_buf[pre_cluster].s.next = CLUSTER_INVALID;
+	return FS_ERR_OK;
+}
 
-		if (en_erase) {
-			u32_t cluster = start_cluster;
-			for (u32_t i = 0; i < allocated_count; i++) {
-				xfat_err_t err = erase_cluster(xfat, cluster, erase_data);
+static xfat_err_t allocate_free_cluster(xfat_t* xfat, u32_t curr_cluster, u32_t count,
+	u32_t* r_start_cluster, u32_t* r_allocated_count, u8_t en_erase, u8_t erase_data) {
+	u32_t allocated_count = 0;
+	u32_t searched_count = 0;
+	u32_t pre_cluster = curr_cluster;
+	u32_t first_free_cluster = CLUSTER_INVALID;
+
+	u32_t total_clusters = xfat->fat_tbl_sectors * xfat_get_disk(xfat)->sector_size / sizeof(cluster32_t);
+	while (xfat->cluster_total_free &&
+		(allocated_count < count) &&
+		(searched_count < total_clusters)) {
+		u32_t next_cluster;
+		xfat_err_t err = get_next_cluster(xfat, xfat->cluster_next_free, &next_cluster);
+		if (err < 0) {
+			destory_cluster_chain(xfat, curr_cluster);
+			return err;
+		}
+		if (next_cluster == CLUSTER_FREE) {
+			u32_t free_cluster = xfat->cluster_next_free;
+			err = put_next_cluster(xfat, pre_cluster, free_cluster);
+			if (err < 0) {
+				destory_cluster_chain(xfat, curr_cluster);
+				return err;
+			}
+
+			if (en_erase) {
+				err = erase_cluster(xfat, free_cluster, 0);
 				if (err < 0) {
+					destory_cluster_chain(xfat, curr_cluster);
 					return err;
 				}
-				cluster = cluster32_buf[cluster].s.next;
+			}
+
+			pre_cluster = free_cluster;
+			xfat->cluster_total_free--;
+			allocated_count++;
+
+			if (allocated_count == 1) {
+				first_free_cluster = xfat->cluster_next_free;
 			}
 		}
 
-		for (u32_t i = 0; i < xfat->fat_tbl_nr; i++) {
-			u32_t start_sector = xfat->fat_start_sector + xfat->fat_tbl_sectors * i;
-			xfat_err_t err = xdisk_write_sector(disk, (u8_t*)xfat->fat_buffer, start_sector, xfat->fat_tbl_sectors);
-			if (err < 0) {
-				return err;
-			}
+		xfat->cluster_next_free++;
+		if (xfat->cluster_next_free >= total_clusters) {
+			xfat->cluster_next_free = 0;
+		}
+
+		searched_count++;
+	}
+
+	if (allocated_count) {
+		xfat_err_t err = put_next_cluster(xfat, pre_cluster, CLUSTER_INVALID);
+		if (err < 0) {
+			destory_cluster_chain(xfat, curr_cluster);
+			return err;
 		}
 	}
 
 	if (r_allocated_count) {
 		*r_allocated_count = allocated_count;
 	}
+
 	if (r_start_cluster) {
-		*r_start_cluster = start_cluster;
+		*r_start_cluster = first_free_cluster;
 	}
 
 	return FS_ERR_OK;
